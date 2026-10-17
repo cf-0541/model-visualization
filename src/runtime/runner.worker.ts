@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 
 import type { RuntimeEvent } from '../types'
-import { createTraceRuntime } from './traceRuntime'
+import { createTraceRuntime, TraceLimitError } from './traceRuntime'
 
 interface RunnerRequest {
   code: string
@@ -9,6 +9,7 @@ interface RunnerRequest {
   entry: string | null
   scriptResult: string | null
   maxEvents: number
+  maxIterations: number
 }
 
 interface RunnerSuccess {
@@ -16,6 +17,7 @@ interface RunnerSuccess {
   events: RuntimeEvent[]
   result: unknown
   duration: number
+  truncated?: string
 }
 
 interface RunnerFailure {
@@ -27,8 +29,8 @@ interface RunnerFailure {
 const scope: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobalScope
 
 scope.onmessage = (message: MessageEvent<RunnerRequest>) => {
-  const { code, args, entry, scriptResult, maxEvents } = message.data
-  const trace = createTraceRuntime(maxEvents)
+  const { code, args, entry, scriptResult, maxEvents, maxIterations } = message.data
+  const trace = createTraceRuntime(maxEvents, maxIterations)
   const startedAt = performance.now()
 
   try {
@@ -67,6 +69,12 @@ return ${entry}(...__args);` : `return ${scriptResult ?? 'undefined'};`}
     }
     scope.postMessage(response)
   } catch (error) {
+    if (error instanceof TraceLimitError) {
+      trace.truncate(error.message)
+      scope.postMessage({ ok: true, events: trace.getEvents(), result: undefined,
+        duration: performance.now() - startedAt, truncated: error.message } satisfies RunnerSuccess)
+      return
+    }
     const text = error instanceof Error ? error.message : String(error)
     try {
       trace.fail(text)

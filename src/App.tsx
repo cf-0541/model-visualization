@@ -73,11 +73,12 @@ export default function App() {
         const result = await runCode(source, parsedInput)
         if (id !== runId.current) return
         const nextSteps = compileTrace(result.events)
+        if (result.truncated) setNotice(result.truncated)
         setRunResult(result)
         setSteps(nextSteps)
-        setStepIndex(0)
+        setStepIndex(result.truncated ? nextSteps.length - 1 : 0)
         setMode('trace')
-        setPlaying(nextSteps.length > 1)
+        setPlaying(!result.truncated && nextSteps.length > 1)
       } catch (runError) {
         if (id !== runId.current) return
         setError(runError instanceof Error ? runError.message : String(runError))
@@ -272,13 +273,13 @@ export default function App() {
       </section>
 
       <footer className="footer-status">
-        <span>本地 Worker 隔离执行 · 2.5 秒 / 20,000 事件上限</span>
+        <span>本地 Worker 隔离执行 · 2.5 秒 / 4,000 事件 / 10,000 次迭代上限</span>
         <span className="footer-metrics">
           <strong>{runResult ? runResult.events.length.toLocaleString() : '0'}</strong> events
           <i />
           <strong>{runResult ? `${runResult.duration.toFixed(1)} ms` : '—'}</strong>
           <i />
-          result <code>{runResult ? resultText(runResult.result) : '—'}</code>
+          result <code>{runResult?.truncated ? '未完成' : runResult ? resultText(runResult.result) : '—'}</code>
         </span>
       </footer>
     </main>

@@ -154,6 +154,23 @@ export function instrumentCode(source: string, captureScriptResult = false): Ins
     },
   })
 
+  // Count every loop body, including empty and condition-free loops. The tick does not
+  // create an event, so it also protects loops whose bodies produce no trace events.
+  const guardLoop = (node: t.ForStatement | t.ForInStatement | t.ForOfStatement | t.WhileStatement | t.DoWhileStatement) => {
+    const body = t.isBlockStatement(node.body) ? node.body : t.blockStatement([node.body])
+    node.body = body
+    body.body.unshift(markStatement(t.expressionStatement(
+      traceCall('iteration', [t.numericLiteral(lineOf(node))]),
+    )))
+  }
+  traverse(ast, {
+    ForStatement(path) { guardLoop(path.node) },
+    ForInStatement(path) { guardLoop(path.node) },
+    ForOfStatement(path) { guardLoop(path.node) },
+    WhileStatement(path) { guardLoop(path.node) },
+    DoWhileStatement(path) { guardLoop(path.node) },
+  })
+
   // Runtime track() only proxies objects, so wrapping scalar declarations is harmless.
   // Doing this broadly means user-defined names work without annotations.
   traverse(ast, {

@@ -125,6 +125,7 @@ export interface RunResult {
   result: unknown
   transformedCode: string
   duration: number
+  truncated?: string
 }
 
 export interface ExampleDefinition {
@@ -139,11 +140,13 @@ export interface ExampleDefinition {
 
 export interface TraceRuntime {
   line(line: number): void
+  iteration(line: number): void
   track<T>(name: string, value: T, line?: number): T
   call(name: string, args: Record<string, unknown>, line: number): number
   ret<T>(name: string, value: T, line: number, callId: number): T
   branch(expression: string, value: unknown, line: number): unknown
   complete(result: unknown, duration: number): void
   fail(message: string): void
+  truncate(message: string): void
   getEvents(): RuntimeEvent[]
 }

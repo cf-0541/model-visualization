@@ -18,7 +18,11 @@ interface RuntimeCall {
 }
 
 const MAX_SNAPSHOT_DEPTH = 7
-const MAX_COLLECTION_SIZE = 120
+export const MAX_COLLECTION_SIZE = 120
+const MAX_SNAPSHOT_NODES = 512
+const MAX_TRACKED_TARGETS = 12
+export const DEFAULT_MAX_EVENTS = 4_000
+export const DEFAULT_MAX_ITERATIONS = 10_000
 
 type RuntimeEventInput = {
   [Kind in RuntimeEvent['type']]: Omit<Extract<RuntimeEvent, { type: Kind }>, 'seq'>
@@ -36,27 +40,35 @@ function displayKey(key: PropertyKey): string | number | null {
 }
 
 export class TraceLimitError extends Error {
-  constructor(limit: number) {
-    super(`运行轨迹超过 ${limit.toLocaleString()} 个事件，请缩小输入规模或减少循环次数。`)
+  constructor(limit: number, kind: 'events' | 'iterations' = 'events') {
+    super(kind === 'events'
+      ? `已达 ${limit.toLocaleString()} 条事件上限，轨迹已截断；算法尚未完成。请缩小输入规模。`
+      : `已达 ${limit.toLocaleString()} 次循环迭代上限，轨迹已截断；算法尚未完成。`)
     this.name = 'TraceLimitError'
   }
 }
 
-export function createTraceRuntime(maxEvents = 20_000): TraceRuntime {
+export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations = DEFAULT_MAX_ITERATIONS): TraceRuntime {
+  maxEvents = Number.isFinite(maxEvents) ? Math.min(DEFAULT_MAX_EVENTS, Math.max(2, Math.floor(maxEvents))) : DEFAULT_MAX_EVENTS
+  maxIterations = Number.isFinite(maxIterations) ? Math.min(DEFAULT_MAX_ITERATIONS, Math.max(1, Math.floor(maxIterations))) : DEFAULT_MAX_ITERATIONS
   const events: RuntimeEvent[] = []
   const proxyMeta = new WeakMap<object, ProxyMeta>()
   const proxyCache = new WeakMap<object, Map<string, object>>()
   const trackedNames = new WeakMap<object, Set<string>>()
+  const trackedTargets = new Set<string>()
   const callStack: RuntimeCall[] = []
 
   let currentLine = 1
   let nextCallId = 1
+  let iterations = 0
 
   const snapshot = (
     input: unknown,
     depth = 0,
     seen = new WeakSet<object>(),
+    budget = { remaining: MAX_SNAPSHOT_NODES },
   ): unknown => {
+    if (budget.remaining-- <= 0) return '[…]'
     if (input === undefined) return 'undefined'
     if (input === null || typeof input === 'string' || typeof input === 'boolean') {
       return input
@@ -76,20 +88,30 @@ export function createTraceRuntime(maxEvents = 20_000): TraceRuntime {
     if (Array.isArray(raw)) {
       const values = raw
         .slice(0, MAX_COLLECTION_SIZE)
-        .map((value) => snapshot(value, depth + 1, seen))
+        .map((value) => snapshot(value, depth + 1, seen, budget))
       if (raw.length > MAX_COLLECTION_SIZE) values.push(`… +${raw.length - MAX_COLLECTION_SIZE}`)
       return values
     }
 
     const output: Record<string, unknown> = {}
-    const entries = Object.entries(raw).slice(0, MAX_COLLECTION_SIZE)
-    for (const [key, value] of entries) output[key] = snapshot(value, depth + 1, seen)
-    if (Object.keys(raw).length > entries.length) output['…'] = 'truncated'
+    let count = 0
+    for (const key in raw) {
+      if (!Object.prototype.hasOwnProperty.call(raw, key)) continue
+      if (count++ >= MAX_COLLECTION_SIZE) {
+        output['…'] = 'truncated'
+        break
+      }
+      output[key] = snapshot((raw as Record<string, unknown>)[key], depth + 1, seen, budget)
+    }
     return output
   }
 
-  const emit = (event: RuntimeEventInput): void => {
+  const ensureCapacity = (): void => {
     if (events.length >= maxEvents) throw new TraceLimitError(maxEvents)
+  }
+
+  const emit = (event: RuntimeEventInput): void => {
+    ensureCapacity()
     events.push({ ...event, seq: events.length } as RuntimeEvent)
   }
 
@@ -113,6 +135,7 @@ export function createTraceRuntime(maxEvents = 20_000): TraceRuntime {
         const nextPath = [...path, part]
         if (isObject(value)) return proxyFor(value, target, nextPath)
 
+        ensureCapacity()
         emit({
           type: 'read',
           line: currentLine,
@@ -124,6 +147,7 @@ export function createTraceRuntime(maxEvents = 20_000): TraceRuntime {
       },
       set(raw, key, value, receiver) {
         const part = displayKey(key)
+        if (part !== null) ensureCapacity()
         const before = Reflect.get(raw, key, receiver)
         const unwrappedValue = isObject(value) ? proxyMeta.get(value)?.raw ?? value : value
         const ok = Reflect.set(raw, key, unwrappedValue, receiver)
@@ -153,9 +177,18 @@ export function createTraceRuntime(maxEvents = 20_000): TraceRuntime {
       emit({ type: 'line', line })
     },
 
+    iteration(line) {
+      currentLine = line
+      if (++iterations > maxIterations) throw new TraceLimitError(maxIterations, 'iterations')
+    },
+
     track(name, value, line = currentLine) {
       currentLine = line
       if (!isObject(value)) return value
+      if (!trackedTargets.has(name)) {
+        if (trackedTargets.size >= MAX_TRACKED_TARGETS) return value
+        trackedTargets.add(name)
+      }
 
       const raw = proxyMeta.get(value)?.raw ?? value
       let names = trackedNames.get(raw)
@@ -169,6 +202,7 @@ export function createTraceRuntime(maxEvents = 20_000): TraceRuntime {
       const proxy = proxyFor(raw, name, [])
 
       if (!alreadyTracked) {
+        ensureCapacity()
         emit({
           type: 'track',
           line,
@@ -181,6 +215,7 @@ export function createTraceRuntime(maxEvents = 20_000): TraceRuntime {
 
     call(name, args, line) {
       currentLine = line
+      ensureCapacity()
       const callId = nextCallId++
       const depth = callStack.length
       const safeArgs = snapshot(args) as Record<string, unknown>
@@ -192,6 +227,7 @@ export function createTraceRuntime(maxEvents = 20_000): TraceRuntime {
 
     ret(name, value, line, callId) {
       currentLine = line
+      ensureCapacity()
       let index = -1
       for (let cursor = callStack.length - 1; cursor >= 0; cursor -= 1) {
         if (callStack[cursor].callId === callId) {
@@ -227,6 +263,7 @@ export function createTraceRuntime(maxEvents = 20_000): TraceRuntime {
     },
 
     complete(result, duration) {
+      ensureCapacity()
       emit({
         type: 'done',
         line: currentLine,
@@ -237,6 +274,12 @@ export function createTraceRuntime(maxEvents = 20_000): TraceRuntime {
 
     fail(message) {
       emit({ type: 'error', line: currentLine, message })
+    },
+
+    truncate(message) {
+      const event: RuntimeEvent = { type: 'error', seq: Math.min(events.length, maxEvents - 1), line: currentLine, message }
+      if (events.length >= maxEvents) events[events.length - 1] = event
+      else events.push(event)
     },
 
     getEvents() {

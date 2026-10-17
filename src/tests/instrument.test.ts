@@ -74,12 +74,41 @@ describe('AST instrumentation', () => {
     expect(() => structuredClone(done?.result)).not.toThrow()
   })
 
-  it('stops emitting after the configured event limit', () => {
+  it('stops emitting after the configured event limit and marks a partial trace', () => {
     const trace = createTraceRuntime(3)
     trace.line(1)
     trace.line(2)
     trace.line(3)
     expect(() => trace.line(4)).toThrow(TraceLimitError)
+    trace.truncate('已达 3 条事件上限，轨迹已截断')
+    expect(trace.getEvents()).toHaveLength(3)
+    expect(trace.getEvents().at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('已截断') })
+    expect(trace.getEvents().some((event) => event.type === 'done')).toBe(false)
+  })
+
+  it.each([
+    'for (;;) ;',
+    'while (true) ;',
+    'do {} while (true);',
+    'for (const value of [1, 2, 3, 4]) {}',
+    'for (const key in {a: 1, b: 2, c: 3, d: 4}) {}',
+  ])('stops loop form %s even without useful state events', (body) => {
+    const { code } = instrumentCode(`function solve() { ` + body + '\n}')
+    const trace = createTraceRuntime(100, 2)
+    const invoke = new Function('__trace', '"use strict"; ' + code + '; return solve();')
+    expect(() => invoke(trace)).toThrow(/2 次循环迭代上限/)
+  })
+
+  it('bounds individual nested value snapshots', () => {
+    const trace = createTraceRuntime()
+    trace.track('grid', Array.from({ length: 120 }, () => Array(120).fill(1)))
+    const event = trace.getEvents()[0]
+    expect(event.type).toBe('track')
+    if (event.type === 'track') {
+      const text = JSON.stringify(event.value)
+      expect(text.length).toBeLessThan(20_000)
+      expect(text).toContain('[…]')
+    }
   })
 })
 

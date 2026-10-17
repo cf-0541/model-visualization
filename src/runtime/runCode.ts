@@ -1,5 +1,6 @@
 import { analyzeSource, argumentsFor } from '../sourceAnalysis'
 import { instrumentCode } from '../instrumentation/instrument'
+import { DEFAULT_MAX_EVENTS, DEFAULT_MAX_ITERATIONS } from './traceRuntime'
 import type { RunResult, RuntimeEvent } from '../types'
 
 interface WorkerSuccess {
@@ -7,6 +8,7 @@ interface WorkerSuccess {
   events: RuntimeEvent[]
   result: unknown
   duration: number
+  truncated?: string
 }
 
 interface WorkerFailure {
@@ -20,6 +22,7 @@ type WorkerResponse = WorkerSuccess | WorkerFailure
 export interface RunOptions {
   timeoutMs?: number
   maxEvents?: number
+  maxIterations?: number
 }
 
 export async function runCode(
@@ -28,7 +31,8 @@ export async function runCode(
   options: RunOptions = {},
 ): Promise<RunResult> {
   const timeoutMs = options.timeoutMs ?? 2_500
-  const maxEvents = options.maxEvents ?? 20_000
+  const maxEvents = options.maxEvents ?? DEFAULT_MAX_EVENTS
+  const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS
   const analysis = analyzeSource(source)
   if (!analysis.script && !analysis.entry) throw new Error('没有找到可执行入口：请提供函数，或粘贴带调用语句的完整脚本。')
   const args = argumentsFor(analysis, input)
@@ -65,6 +69,7 @@ export async function runCode(
         result: message.data.result,
         duration: message.data.duration,
         transformedCode: transformed.code,
+        truncated: message.data.truncated,
       })
     }
 
@@ -73,6 +78,6 @@ export async function runCode(
       reject(new Error(event.message || 'Worker 执行失败。'))
     }
 
-    worker.postMessage({ code: transformed.code, args, entry: analysis.entry, scriptResult: transformed.scriptResult, maxEvents })
+    worker.postMessage({ code: transformed.code, args, entry: analysis.entry, scriptResult: transformed.scriptResult, maxEvents, maxIterations })
   })
 }

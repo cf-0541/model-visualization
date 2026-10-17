@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compileTrace } from '../trace/compileTrace'
+import { compileTrace, MAX_VISUAL_STEPS } from '../trace/compileTrace'
 import { detectModel } from '../trace/detectModel'
 import type { RuntimeEvent } from '../types'
 
@@ -19,6 +19,38 @@ describe('trace compiler', () => {
     expect(steps[3].snapshot.reads[0]).toMatchObject({ target: 'dp', path: [0] })
     expect(steps[3].snapshot.write).toMatchObject({ target: 'dp', path: [1], value: 2 })
     expect(steps[0].snapshot.tracked.dp).toEqual([0, 0, 0])
+  })
+
+  it('replays all writes while keeping only bounded visual frames', () => {
+    const many: RuntimeEvent[] = [{ seq: 0, type: 'track', line: 1, target: 'dp', value: [0] }]
+    for (let value = 1; value <= 1_000; value++) {
+      many.push({ seq: value, type: 'write', line: 2, target: 'dp', path: [0], before: value - 1, after: value })
+    }
+    many.push({ seq: 1_001, type: 'done', line: 3, result: 1_000, duration: 1 })
+    const steps = compileTrace(many)
+    expect(steps.length).toBeLessThanOrEqual(MAX_VISUAL_STEPS)
+    expect(steps[0].snapshot.tracked.dp).toEqual([0])
+    expect(steps.at(-1)?.snapshot.tracked.dp).toEqual([1_000])
+    expect(steps.at(-1)?.event.type).toBe('done')
+    expect(steps.map((step) => step.index)).toEqual(steps.map((_, index) => index))
+  })
+
+  it('keeps only recent call frames in visual snapshots', () => {
+    const calls: RuntimeEvent[] = Array.from({ length: 100 }, (_, index) => ({
+      seq: index, type: 'call', line: 1, name: 'recur', callId: index + 1, depth: index, args: { index },
+    }))
+    const last = compileTrace(calls).at(-1)!
+    expect(last.snapshot.callStack).toHaveLength(24)
+    expect(last.snapshot.callStack[0].callId).toBe(77)
+  })
+
+  it('does not allocate giant sparse arrays for out-of-view writes', () => {
+    const steps = compileTrace([
+      { seq: 0, type: 'track', line: 1, target: 'values', value: [0] },
+      { seq: 1, type: 'write', line: 2, target: 'values', path: [100_000_000], before: 'undefined', after: 1 },
+    ])
+    expect((steps[1].snapshot.tracked.values as unknown[]).length).toBe(1)
+    expect(steps[1].snapshot.write?.path).toEqual([100_000_000])
   })
 
   it('detects DP and segment tree models from semantic events', () => {

@@ -1,3 +1,4 @@
+import { MAX_COLLECTION_SIZE } from '../runtime/traceRuntime'
 import type {
   CallFrame,
   RuntimeEvent,
@@ -19,6 +20,9 @@ function cloneValue<T>(value: T): T {
 
 function setAtPath(root: unknown, path: TracePath, value: unknown): unknown {
   if (path.length === 0) return cloneValue(value)
+  // The runtime captures at most the first 120 array entries. Do not expand
+  // sparse visual arrays to a massive index seen later in the trace.
+  if (path.some((part) => typeof part === 'number' && part >= MAX_COLLECTION_SIZE)) return root
   if (root === null || typeof root !== 'object') return root
 
   let cursor = root as Record<string | number, unknown>
@@ -104,6 +108,9 @@ function describe(event: RuntimeEvent): { title: string; description: string } {
   }
 }
 
+export const MAX_VISUAL_STEPS = 400
+const MAX_VISIBLE_CALL_FRAMES = 24
+
 function pointerKey(pointer: TracePointer): string {
   return `${pointer.target}:${pointer.path.join('.')}`
 }
@@ -117,7 +124,11 @@ export function compileTrace(events: RuntimeEvent[]): VisualStep[] {
   let branch: { expression: string; result: boolean } | null = null
   let result: unknown = undefined
 
-  return events.map((event, index) => {
+  // Replay every event, but materialize only bounded, evenly spaced frames.
+  // This preserves state changes between frames without cloning a full snapshot each time.
+  const stride = Math.max(1, Math.ceil((events.length - 1) / (MAX_VISUAL_STEPS - 1)))
+  const steps: VisualStep[] = []
+  events.forEach((event, index) => {
     if (event.type === 'line') {
       activeWrite = null
       branch = null
@@ -177,24 +188,27 @@ export function compileTrace(events: RuntimeEvent[]): VisualStep[] {
 
     if (event.type === 'done') result = cloneValue(event.result)
 
+    if (index % stride !== 0 && index !== events.length - 1) return
+
     const snapshot: VisualSnapshot = {
       tracked: cloneValue(tracked),
       reads: cloneValue(activeReads),
       write: cloneValue(activeWrite),
-      callStack: cloneValue(callStack),
+      callStack: cloneValue(callStack.slice(-MAX_VISIBLE_CALL_FRAMES)),
       branch: cloneValue(branch),
       result: cloneValue(result),
     }
     const copy = cloneValue(event)
     const text = describe(copy)
 
-    return {
-      index,
+    steps.push({
+      index: steps.length,
       event: copy,
       line: event.line,
       title: text.title,
       description: text.description,
       snapshot,
-    }
+    })
   })
+  return steps
 }

@@ -11,6 +11,7 @@ import { decideModel } from '../trace/detectModel'
 import { compileTrace } from '../trace/compileTrace'
 import { examples } from '../examples'
 import { readShareHash, shareUrl } from '../share'
+import type { RuntimeEvent } from '../types'
 
 function runSnippet(source: string, input: string) {
   const analysis = analyzeSource(source)
@@ -132,7 +133,7 @@ describe('paste-and-run workflow', () => {
   })
 
   it('returns the captured script result through the actual Worker handler', async () => {
-    const responses: Array<{ ok: boolean; result?: unknown; events?: Array<{ type: string; name?: string }> }> = []
+    const responses: Array<{ ok: boolean; result?: unknown; truncated?: string; events?: Array<{ type: string; name?: string }> }> = []
     const workerScope = {
       postMessage: (response: typeof responses[number]) => responses.push(response),
     } as unknown as {
@@ -146,10 +147,35 @@ describe('paste-and-run workflow', () => {
       const transformed = instrumentCode(source, true)
       workerScope.onmessage({ data: {
         code: transformed.code, entry: null, scriptResult: transformed.scriptResult,
-        args: [], maxEvents: 1_000,
+        args: [], maxEvents: 1_000, maxIterations: 10_000,
       } } as MessageEvent<unknown>)
       expect(responses[0]).toMatchObject({ ok: true, result: 6 })
       expect(responses[0].events?.filter((event) => event.type === 'call' && event.name === 'twice')).toHaveLength(1)
+
+      const sort = instrumentCode('function solve(values) { for (let i = 0; i < values.length; i++) for (let j = 0; j < values.length - i - 1; j++) if (values[j] > values[j + 1]) { const t = values[j]; values[j] = values[j + 1]; values[j + 1] = t; } return values; }')
+      workerScope.onmessage({ data: { code: sort.code, entry: 'solve', scriptResult: null,
+        args: [Array.from({ length: 1_000 }, (_, index) => 1_000 - index)], maxEvents: 80, maxIterations: 10_000,
+      } } as MessageEvent<unknown>)
+      expect(responses[1]).toMatchObject({ ok: true, truncated: expect.stringContaining('80 条事件上限') })
+      expect(responses[1].events?.length).toBeLessThanOrEqual(80)
+      expect(responses[1].events?.at(-1)).toMatchObject({ type: 'error' })
+      expect(responses[1].events?.some((event) => event.type === 'done')).toBe(false)
+
+      workerScope.onmessage({ data: { code: sort.code, entry: 'solve', scriptResult: null,
+        args: [Array.from({ length: 1_000 }, (_, index) => 1_000 - index)], maxEvents: 4_000, maxIterations: 10_000,
+      } } as MessageEvent<unknown>)
+      expect(responses[2].truncated).toContain('4,000 条事件上限')
+      expect(responses[2].events).toHaveLength(4_000)
+      const sampled = compileTrace(responses[2].events as RuntimeEvent[])
+      expect(sampled.length).toBeLessThanOrEqual(400)
+      expect(sampled.at(-1)?.event.type).toBe('error')
+
+      const emptyLoop = instrumentCode('function solve() { for (;;) ; }')
+      workerScope.onmessage({ data: { code: emptyLoop.code, entry: 'solve', scriptResult: null,
+        args: [], maxEvents: 80, maxIterations: 5,
+      } } as MessageEvent<unknown>)
+      expect(responses[3]).toMatchObject({ ok: true, truncated: expect.stringContaining('5 次循环迭代上限') })
+      expect(responses[3].events?.at(-1)).toMatchObject({ type: 'error' })
     } finally {
       vi.unstubAllGlobals()
     }
