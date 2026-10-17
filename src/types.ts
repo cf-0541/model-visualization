@@ -1,5 +1,10 @@
-export type ModelPreference = 'auto' | 'array' | 'dp' | 'segment-tree'
+export type ModelPreference = 'auto' | 'array' | 'dp' | 'segment-tree' | 'graph'
 export type ModelKind = Exclude<ModelPreference, 'auto'>
+export interface ModelDecision {
+  model: ModelKind
+  source: 'manual' | 'declared' | 'structure' | 'trace' | 'fallback'
+  reason: string
+}
 export type TracePath = Array<string | number>
 
 export interface TraceBase {
@@ -111,9 +116,11 @@ export interface VisualStep {
 
 export interface InstrumentResult {
   code: string
+  scriptResult: string | null
 }
 
 export interface RunResult {
+  analysis: import('./sourceAnalysis').SourceAnalysis
   events: RuntimeEvent[]
   result: unknown
   transformedCode: string

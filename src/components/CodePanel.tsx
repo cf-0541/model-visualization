@@ -116,9 +116,9 @@ export function CodePanel({
       <div className="input-section">
         <label htmlFor="algorithm-input">
           <span className="input-label">
-            <Braces size={14} /> JSON 输入
+            <Braces size={14} /> 算法输入
           </span>
-          <span className="input-hint">传给 solve(input)</span>
+          <span className="input-hint">单参数直接传值；多参数用 [arg1, arg2] 或同名对象</span>
         </label>
         <textarea
           id="algorithm-input"
@@ -126,7 +126,7 @@ export function CodePanel({
           value={input}
           onChange={(event) => onInputChange(event.target.value)}
           spellCheck={false}
-          aria-invalid={Boolean(error && error.includes('JSON'))}
+          aria-invalid={Boolean(error && error.includes('输入'))}
         />
         {error ? <div className="inline-error" role="alert">{error}</div> : null}
       </div>

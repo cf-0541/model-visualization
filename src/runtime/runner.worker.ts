@@ -5,7 +5,9 @@ import { createTraceRuntime } from './traceRuntime'
 
 interface RunnerRequest {
   code: string
-  input: unknown
+  args: unknown[]
+  entry: string | null
+  scriptResult: string | null
   maxEvents: number
 }
 
@@ -25,14 +27,14 @@ interface RunnerFailure {
 const scope: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobalScope
 
 scope.onmessage = (message: MessageEvent<RunnerRequest>) => {
-  const { code, input, maxEvents } = message.data
+  const { code, args, entry, scriptResult, maxEvents } = message.data
   const trace = createTraceRuntime(maxEvents)
   const startedAt = performance.now()
 
   try {
     const execute = new Function(
       '__trace',
-      '__input',
+      '__args',
       `"use strict";
 const window = undefined;
 const document = undefined;
@@ -42,13 +44,12 @@ const XMLHttpRequest = undefined;
 const WebSocket = undefined;
 const importScripts = undefined;
 ${code}
-if (typeof solve !== "function") {
-  throw new Error("请提供 function solve(input) 作为程序入口。");
-}
-return solve(__input);`,
-    ) as (runtime: ReturnType<typeof createTraceRuntime>, value: unknown) => unknown
+${entry ? `if (typeof ${entry} !== "function") throw new Error("找不到入口函数 ${entry}。");
+return ${entry}(...__args);` : `return ${scriptResult ?? 'undefined'};`}
+`,
+    ) as (runtime: ReturnType<typeof createTraceRuntime>, values: unknown[]) => unknown
 
-    const result = execute(trace, input)
+    const result = execute(trace, args)
     if (result instanceof Promise) {
       throw new Error('当前原型只支持同步算法，请移除 async/Promise。')
     }

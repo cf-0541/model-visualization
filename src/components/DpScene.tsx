@@ -3,14 +3,18 @@ import { formatCell, pointerMatches, readMatches } from '../trace/state'
 
 interface DpSceneProps {
   step: VisualStep
+  targetHint?: string | null
 }
 
-function chooseDp(step: VisualStep): [string, unknown[]] | null {
+function chooseDp(step: VisualStep, targetHint?: string | null): [string, unknown[]] | null {
   const arrays = Object.entries(step.snapshot.tracked).filter(([, value]) => Array.isArray(value)) as Array<[
     string,
     unknown[],
   ]>
-  return arrays.find(([name]) => /^(dp|memo|f)$/i.test(name)) ?? arrays.find(([, value]) => value.some(Array.isArray)) ?? null
+  return arrays.find(([name]) => name === targetHint) ??
+    arrays.find(([name]) => /^(dp|memo|f)$/i.test(name)) ??
+    arrays.find(([, value]) => value.some(Array.isArray)) ??
+    arrays.at(-1) ?? null
 }
 
 function readIndex(pointer: TracePointer, target: string): number | null {
@@ -165,8 +169,8 @@ function TwoDimensionalDp({ target, rows, step }: { target: string; rows: unknow
   )
 }
 
-export function DpScene({ step }: DpSceneProps) {
-  const selected = chooseDp(step)
+export function DpScene({ step, targetHint }: DpSceneProps) {
+  const selected = chooseDp(step, targetHint)
   if (!selected) return <div className="scene-empty">等待识别 DP 状态表…</div>
 
   const [target, values] = selected

@@ -2,12 +2,14 @@ import { Box, BrainCircuit, Network, Rows3 } from 'lucide-react'
 import type { ModelKind, VisualStep } from '../types'
 import { ArrayScene } from './ArrayScene'
 import { DpScene } from './DpScene'
+import { GraphScene } from './GraphScene'
 import { SegmentTreeScene } from './SegmentTreeScene'
 
 interface VisualizationStageProps {
   model: ModelKind
   step: VisualStep | null
   running: boolean
+  dpTarget?: string | null
 }
 
 const modelMeta: Record<
@@ -17,9 +19,10 @@ const modelMeta: Record<
   array: { label: '数组状态模型', eyebrow: 'ARRAY MODEL', icon: Rows3 },
   dp: { label: '动态规划模型', eyebrow: 'DP MODEL', icon: BrainCircuit },
   'segment-tree': { label: '线段树模型', eyebrow: 'TREE MODEL', icon: Network },
+  graph: { label: '图遍历模型', eyebrow: 'GRAPH MODEL', icon: Network },
 }
 
-export function VisualizationStage({ model, step, running }: VisualizationStageProps) {
+export function VisualizationStage({ model, step, running, dpTarget }: VisualizationStageProps) {
   const meta = modelMeta[model]
   const ModelIcon = meta.icon
 
@@ -55,9 +58,11 @@ export function VisualizationStage({ model, step, running }: VisualizationStageP
           </div>
         ) : step ? (
           model === 'dp' ? (
-            <DpScene step={step} />
+            <DpScene step={step} targetHint={dpTarget} />
           ) : model === 'segment-tree' ? (
             <SegmentTreeScene step={step} />
+          ) : model === 'graph' ? (
+            <GraphScene step={step} />
           ) : (
             <ArrayScene step={step} />
           )

@@ -1,3 +1,4 @@
+import { analyzeSource, argumentsFor } from '../sourceAnalysis'
 import { instrumentCode } from '../instrumentation/instrument'
 import type { RunResult, RuntimeEvent } from '../types'
 
@@ -28,7 +29,10 @@ export async function runCode(
 ): Promise<RunResult> {
   const timeoutMs = options.timeoutMs ?? 2_500
   const maxEvents = options.maxEvents ?? 20_000
-  const transformed = instrumentCode(source)
+  const analysis = analyzeSource(source)
+  if (!analysis.script && !analysis.entry) throw new Error('没有找到可执行入口：请提供函数，或粘贴带调用语句的完整脚本。')
+  const args = argumentsFor(analysis, input)
+  const transformed = instrumentCode(source, analysis.script)
   const worker = new Worker(new URL('./runner.worker.ts', import.meta.url), {
     type: 'module',
     name: 'algorithm-trace-runner',
@@ -56,6 +60,7 @@ export async function runCode(
         return
       }
       resolve({
+        analysis,
         events: message.data.events,
         result: message.data.result,
         duration: message.data.duration,
@@ -68,6 +73,6 @@ export async function runCode(
       reject(new Error(event.message || 'Worker 执行失败。'))
     }
 
-    worker.postMessage({ code: transformed.code, input, maxEvents })
+    worker.postMessage({ code: transformed.code, args, entry: analysis.entry, scriptResult: transformed.scriptResult, maxEvents })
   })
 }

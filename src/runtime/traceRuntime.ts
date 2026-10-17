@@ -128,7 +128,7 @@ export function createTraceRuntime(maxEvents = 20_000): TraceRuntime {
         const unwrappedValue = isObject(value) ? proxyMeta.get(value)?.raw ?? value : value
         const ok = Reflect.set(raw, key, unwrappedValue, receiver)
 
-        if (ok && part !== null && key !== 'length') {
+        if (ok && part !== null) {
           emit({
             type: 'write',
             line: currentLine,

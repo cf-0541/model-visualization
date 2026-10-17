@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Braces,
   ChevronDown,
   CircleDot,
   Cpu,
   Play,
+  Share2,
   Sparkles,
   WandSparkles,
 } from 'lucide-react'
@@ -14,15 +15,19 @@ import { EventInspector } from './components/EventInspector'
 import { VisualizationStage } from './components/VisualizationStage'
 import { examples } from './examples'
 import { runCode } from './runtime/runCode'
+import { parseInput } from './parseInput'
+import { readShareHash, shareUrl } from './share'
 import { compileTrace } from './trace/compileTrace'
-import { detectModel } from './trace/detectModel'
-import type { ModelKind, ModelPreference, RunResult, VisualStep } from './types'
+import { decideModel } from './trace/detectModel'
+import { selectDpTarget } from './trace/selectDp'
+import type { ModelPreference, RunResult, VisualStep } from './types'
 
 const modelOptions: Array<{ value: ModelPreference; label: string }> = [
   { value: 'auto', label: '自动识别模型' },
   { value: 'array', label: '数组模型' },
   { value: 'dp', label: '动态规划模型' },
   { value: 'segment-tree', label: '线段树模型' },
+  { value: 'graph', label: '图遍历模型' },
 ]
 
 function resultText(value: unknown): string {
@@ -34,12 +39,12 @@ function resultText(value: unknown): string {
 
 export default function App() {
   const initial = examples[0]
-  const [selectedExample, setSelectedExample] = useState(initial.id)
-  const [code, setCode] = useState(initial.code)
-  const [input, setInput] = useState(initial.input)
+  const shared = useMemo(() => readShareHash(window.location.hash), [])
+  const [selectedExample, setSelectedExample] = useState(shared ? 'custom' : initial.id)
+  const [code, setCode] = useState(shared?.code ?? initial.code)
+  const [input, setInput] = useState(shared?.input ?? initial.input)
   const [mode, setMode] = useState<'edit' | 'trace'>('edit')
-  const [preference, setPreference] = useState<ModelPreference>('auto')
-  const [model, setModel] = useState<ModelKind>(initial.model)
+  const [preference, setPreference] = useState<ModelPreference>(shared?.model ?? 'auto')
   const [runResult, setRunResult] = useState<RunResult | null>(null)
   const [steps, setSteps] = useState<VisualStep[]>([])
   const [stepIndex, setStepIndex] = useState(0)
@@ -47,43 +52,38 @@ export default function App() {
   const [speed, setSpeed] = useState(1)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const didAutoRun = useRef(false)
+  const [notice, setNotice] = useState(shared ? '分享链接已载入，请检查代码后手动运行；链接中的代码不会自动执行。' : '')
+  const didAutoRun = useRef(Boolean(shared))
+  const runId = useRef(0)
 
   const execute = useCallback(
     async (
       source = code,
       inputText = input,
-      requestedModel: ModelPreference = preference,
     ) => {
+      const id = ++runId.current
       setRunning(true)
       setPlaying(false)
       setError(null)
-
-      let parsedInput: unknown
+      setNotice('')
+      setRunResult(null)
+      setSteps([])
       try {
-        parsedInput = JSON.parse(inputText)
-      } catch (parseError) {
-        const detail = parseError instanceof Error ? parseError.message : String(parseError)
-        setError(`JSON 输入无效：${detail}`)
-        setRunning(false)
-        setMode('edit')
-        return
-      }
-
-      try {
+        const parsedInput = parseInput(inputText)
         const result = await runCode(source, parsedInput)
+        if (id !== runId.current) return
         const nextSteps = compileTrace(result.events)
         setRunResult(result)
         setSteps(nextSteps)
-        setModel(detectModel(result.events, requestedModel))
         setStepIndex(0)
         setMode('trace')
         setPlaying(nextSteps.length > 1)
       } catch (runError) {
+        if (id !== runId.current) return
         setError(runError instanceof Error ? runError.message : String(runError))
         setMode('edit')
       } finally {
-        setRunning(false)
+        if (id === runId.current) setRunning(false)
       }
     },
     [code, input, preference],
@@ -92,7 +92,7 @@ export default function App() {
   useEffect(() => {
     if (didAutoRun.current) return
     didAutoRun.current = true
-    void execute(initial.code, initial.input, 'auto')
+    void execute(initial.code, initial.input)
   }, [execute, initial.code, initial.input])
 
   useEffect(() => {
@@ -107,12 +107,31 @@ export default function App() {
     return () => window.clearTimeout(timer)
   }, [playing, speed, stepIndex, steps.length])
 
-  useEffect(() => {
-    if (runResult) setModel(detectModel(runResult.events, preference))
-  }, [preference, runResult])
-
+  const decision = runResult ? decideModel(runResult.events, runResult.analysis, preference) : null
+  const model = decision?.model ?? initial.model
+  const dpTarget = useMemo(() => selectDpTarget(steps), [steps])
   const currentStep = steps[stepIndex] ?? null
-  const selectedDefinition = examples.find((example) => example.id === selectedExample) ?? initial
+  const selectedDefinition = examples.find((example) => example.id === selectedExample)
+  const invalidate = () => {
+    runId.current += 1
+    setRunResult(null)
+    setSteps([])
+    setRunning(false)
+    setPlaying(false)
+    setMode('edit')
+    setError(null)
+    setNotice('')
+    setSelectedExample('custom')
+  }
+  const share = async () => {
+    try {
+      const url = shareUrl({ code, input, model: preference }, window.location.href)
+      await navigator.clipboard.writeText(url)
+      setNotice('分享链接已复制；链接只载入代码，不会自动运行。请勿分享含隐私的代码或输入。')
+    } catch (copyError) {
+      setNotice(copyError instanceof Error ? copyError.message : '无法复制链接，请检查浏览器剪贴板权限。')
+    }
+  }
 
   const loadExample = (id: string) => {
     const example = examples.find((item) => item.id === id)
@@ -121,9 +140,9 @@ export default function App() {
     setCode(example.code)
     setInput(example.input)
     setPreference('auto')
-    setModel(example.model)
     setError(null)
-    void execute(example.code, example.input, 'auto')
+    setNotice('')
+    void execute(example.code, example.input)
   }
 
   return (
@@ -158,6 +177,7 @@ export default function App() {
               value={selectedExample}
               onChange={(event) => loadExample(event.target.value)}
             >
+              {selectedExample === 'custom' ? <option value="custom">自定义代码</option> : null}
               {examples.map((example) => (
                 <option key={example.id} value={example.id}>{example.title}</option>
               ))}
@@ -168,7 +188,7 @@ export default function App() {
 
         <div className="example-description">
           <CircleDot size={14} />
-          <span>{selectedDefinition.description}</span>
+          <span>{selectedDefinition?.description ?? '粘贴函数或完整脚本，即可生成执行轨迹。'}</span>
         </div>
 
         <div className="select-group model-select">
@@ -187,6 +207,9 @@ export default function App() {
           </div>
         </div>
 
+        <button className="share-button" type="button" onClick={() => void share()}>
+          <Share2 size={16} /> 分享链接
+        </button>
         <button
           className="run-button"
           type="button"
@@ -198,6 +221,15 @@ export default function App() {
         </button>
       </section>
 
+      {(decision || notice) ? (
+        <div className={`model-notice${decision?.source === 'fallback' ? ' uncertain' : ''}`} role="status">
+          {notice || (decision ? (decision.source === 'fallback'
+            ? '无法可靠识别模型，暂以数组视图展示；请用上方菜单手动切换。'
+            : `当前${decision.source === 'manual' ? '手动选用' : '识别为'}「${modelOptions.find((option) => option.value === decision.model)?.label}」（${decision.reason}）；如不符可在上方一键切换。`) : '')}
+          {runResult?.analysis.script ? ' 完整脚本已自行调用；输入框内容不会传入脚本。' : ''}
+        </div>
+      ) : <div className="model-notice quiet">粘贴真实函数无需改名；多参数按顺序输入数组。自动识别不准时可手动切换模型。</div>}
+
       <section className="workspace">
         <CodePanel
           code={code}
@@ -207,18 +239,18 @@ export default function App() {
           currentEvent={currentStep?.event ?? null}
           error={error}
           onCodeChange={(value) => {
+            invalidate()
             setCode(value)
-            setPlaying(false)
           }}
           onInputChange={(value) => {
+            invalidate()
             setInput(value)
-            setPlaying(false)
           }}
           onModeChange={setMode}
         />
 
         <div className="stage-column">
-          <VisualizationStage model={model} step={currentStep} running={running} />
+          <VisualizationStage model={model} step={currentStep} running={running} dpTarget={dpTarget} />
           <EventInspector step={currentStep} />
           <Controls
             index={stepIndex}

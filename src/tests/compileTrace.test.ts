@@ -35,6 +35,8 @@ describe('trace compiler', () => {
         args: { p: 1, l: 0, r: 7 },
       },
     ]
+    expect(detectModel(treeEvents)).toBe('array') // a single p/l/r call is not sufficient evidence
+    treeEvents.push({ seq: 1, type: 'call', line: 2, name: 'build', callId: 2, depth: 1, args: { p: 2, l: 0, r: 3 } })
     expect(detectModel(treeEvents)).toBe('segment-tree')
     expect(detectModel(events, 'array')).toBe('array')
   })

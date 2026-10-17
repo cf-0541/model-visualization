@@ -70,13 +70,51 @@ function markStatement(statement: t.Statement): t.Statement {
   return injected(statement)
 }
 
-export function instrumentCode(source: string): InstrumentResult {
+export function instrumentCode(source: string, captureScriptResult = false): InstrumentResult {
   const ast = parse(source, {
-    sourceType: 'script',
+    sourceType: 'module',
     allowAwaitOutsideFunction: false,
     errorRecovery: false,
     plugins: ['numericSeparator', 'optionalChaining', 'nullishCoalescingOperator'],
   })
+
+  // The Worker runs a classic function body, not a module. Unwrap declarations
+  // (notably `export const __model`) without moving their original source lines.
+  for (const item of [...ast.program.body]) {
+    if (t.isExportNamedDeclaration(item)) {
+      if (!item.declaration) throw new Error('暂不支持独立 export 语句。')
+      ast.program.body.splice(ast.program.body.indexOf(item), 1, item.declaration)
+    } else if (t.isImportDeclaration(item) || t.isExportDefaultDeclaration(item) || t.isExportAllDeclaration(item)) {
+      throw new Error('暂不支持 import/export default；请粘贴独立可运行的 JavaScript。')
+    }
+  }
+
+  let scriptResult: string | null = null
+  if (captureScriptResult) {
+    // Capture the final top-level expression or call initializer without
+    // evaluating it twice. The result binding is generated to avoid collisions.
+    let name = '__traceScriptResult'
+    while (new RegExp(`\\b${name}\\b`).test(source)) name += '_'
+    for (const statement of [...ast.program.body].reverse()) {
+      if (t.isExpressionStatement(statement) && !t.isStringLiteral(statement.expression)) {
+        statement.expression = t.assignmentExpression('=', t.identifier(name), statement.expression)
+        scriptResult = name
+        break
+      }
+      if (t.isVariableDeclaration(statement)) {
+        const candidate = [...statement.declarations].reverse().find((item) =>
+          t.isIdentifier(item.id) && item.id.name !== '__model' && item.init)
+        if (candidate && candidate.init) {
+          candidate.init = t.assignmentExpression('=', t.identifier(name), candidate.init)
+          scriptResult = name
+          break
+        }
+      }
+    }
+    if (scriptResult) {
+      ast.program.body.unshift(markStatement(t.variableDeclaration('let', [t.variableDeclarator(t.identifier(name))])))
+    }
+  }
 
   // Concise arrow functions need a block so call/return hooks can be inserted.
   traverse(ast, {
@@ -247,5 +285,5 @@ export function instrumentCode(source: string): InstrumentResult {
     retainLines: true,
   })
 
-  return { code: output.code }
+  return { code: output.code, scriptResult }
 }

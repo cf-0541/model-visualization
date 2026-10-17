@@ -111,4 +111,46 @@ export const examples: ExampleDefinition[] = [
   return dp[rows - 1][cols - 1];
 }`,
   },
+  {
+    id: 'bfs',
+    title: '图 · BFS 邻接表（双参数）',
+    shortTitle: 'BFS 图遍历',
+    description: '真实 bfs(adj, start) 签名：队列推进并标记已访问节点。',
+    model: 'graph',
+    input: '[[[1, 2], [0, 3], [0, 3], [1, 2]], 0]',
+    code: `function bfs(adj, start) {
+  const seen = Array(adj.length).fill(false);
+  const queue = [start];
+  const order = [];
+  seen[start] = true;
+  while (queue.length) {
+    const node = queue.shift();
+    order.push(node);
+    for (const next of adj[node]) {
+      if (!seen[next]) {
+        seen[next] = true;
+        queue.push(next);
+      }
+    }
+  }
+  return order;
+}`,
+  },
+  {
+    id: 'two-sum',
+    title: 'LeetCode · 两数之和（双参数）',
+    shortTitle: '两数之和',
+    description: '直接粘贴 LeetCode 风格函数，不需要包装成 solve(input)。',
+    model: 'array',
+    input: '[[2, 7, 11, 15], 9]',
+    code: `var twoSum = function(nums, target) {
+  for (let i = 0; i < nums.length; i++) {
+    for (let j = i + 1; j < nums.length; j++) {
+      if (nums[i] + nums[j] === target) return [i, j];
+    }
+  }
+  return [];
+};`,
+  },
+
 ]
