@@ -1,21 +1,22 @@
 import { Box, BrainCircuit, Network, Rows3 } from 'lucide-react'
-import type { ModelKind, VisualStep } from '../types'
+import type { DetectedModel, VisualStep } from '../types'
 import { ArrayScene } from './ArrayScene'
 import { DpScene } from './DpScene'
 import { GraphScene } from './GraphScene'
 import { SegmentTreeScene } from './SegmentTreeScene'
 
 interface VisualizationStageProps {
-  model: ModelKind
+  model: DetectedModel
   step: VisualStep | null
   running: boolean
   dpTarget?: string | null
 }
 
 const modelMeta: Record<
-  ModelKind,
+  DetectedModel,
   { label: string; eyebrow: string; icon: typeof Box }
 > = {
+  unknown: { label: '未识别数据结构', eyebrow: 'UNKNOWN MODEL', icon: Box },
   array: { label: '数组状态模型', eyebrow: 'ARRAY MODEL', icon: Rows3 },
   dp: { label: '动态规划模型', eyebrow: 'DP MODEL', icon: BrainCircuit },
   'segment-tree': { label: '线段树模型', eyebrow: 'TREE MODEL', icon: Network },
@@ -33,12 +34,12 @@ export function VisualizationStage({ model, step, running, dpTarget }: Visualiza
         <div className="model-identity">
           <span className="model-icon"><ModelIcon size={18} /></span>
           <div>
-            <span className="eyebrow">{meta.eyebrow}</span>
-            <h2>{meta.label}</h2>
+            <span className="eyebrow">{step ? meta.eyebrow : 'MODEL STAGE'}</span>
+            <h2>{step ? meta.label : '可视化舞台'}</h2>
           </div>
         </div>
         <div className={`runtime-status${running ? ' running' : ''}`}>
-          <i /> {running ? '正在构建轨迹' : '轨迹已就绪'}
+          <i /> {running ? '正在构建轨迹' : step ? '轨迹已就绪' : '等待运行'}
         </div>
       </div>
 
@@ -55,6 +56,12 @@ export function VisualizationStage({ model, step, running, dpTarget }: Visualiza
           <div className="stage-loader" role="status">
             <span className="loader-orbit"><i /><i /><i /></span>
             <strong>解析 AST · 注入追踪 · 执行</strong>
+          </div>
+        ) : step && model === 'unknown' ? (
+          <div className="stage-placeholder" role="status">
+            <span><Box size={30} /></span>
+            <strong>尚未识别出可视化结构</strong>
+            <p>轨迹已生成，请在上方“可视化模型”菜单手动选择结构，再查看动画。</p>
           </div>
         ) : step ? (
           model === 'dp' ? (

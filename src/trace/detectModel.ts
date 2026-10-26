@@ -1,4 +1,4 @@
-import type { ModelDecision, ModelKind, ModelPreference, RuntimeEvent } from '../types'
+import type { DetectedModel, ModelDecision, ModelPreference, RuntimeEvent } from '../types'
 import type { SourceAnalysis } from '../sourceAnalysis'
 
 export function decideModel(
@@ -23,11 +23,11 @@ export function decideModel(
   const arrayActivity = events.some((event) => (event.type === 'read' || event.type === 'write') &&
     typeof event.path[0] === 'number')
   if (arrayActivity) return { model: 'array', source: 'trace', reason: '运行轨迹包含数组索引操作' }
-  return { model: 'array', source: 'fallback', reason: '没有足够的结构特征' }
+  return { model: 'unknown', source: 'fallback', reason: '没有足够的结构特征' }
 }
 
 // Keep the simple API for external users of the trace compiler.
-export function detectModel(events: RuntimeEvent[], preference: ModelPreference = 'auto'): ModelKind {
+export function detectModel(events: RuntimeEvent[], preference: ModelPreference = 'auto'): DetectedModel {
   const empty: SourceAnalysis = { entry: null, parameters: [], requiredParameters: 0, script: false, declaredModel: null, structure: null, reason: '' }
   return decideModel(events, empty, preference).model
 }

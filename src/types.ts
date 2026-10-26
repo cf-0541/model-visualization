@@ -1,7 +1,8 @@
 export type ModelPreference = 'auto' | 'array' | 'dp' | 'segment-tree' | 'graph'
 export type ModelKind = Exclude<ModelPreference, 'auto'>
+export type DetectedModel = ModelKind | 'unknown'
 export interface ModelDecision {
-  model: ModelKind
+  model: DetectedModel
   source: 'manual' | 'declared' | 'structure' | 'trace' | 'fallback'
   reason: string
 }

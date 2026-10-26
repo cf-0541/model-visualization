@@ -14,8 +14,6 @@ import { Controls } from './components/Controls'
 import { EventInspector } from './components/EventInspector'
 import { VisualizationStage } from './components/VisualizationStage'
 import { examples } from './examples'
-import { runCode } from './runtime/runCode'
-import { parseInput } from './parseInput'
 import { readShareHash, shareUrl } from './share'
 import { compileTrace } from './trace/compileTrace'
 import { decideModel } from './trace/detectModel'
@@ -53,13 +51,13 @@ export default function App() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState(shared ? '分享链接已载入，请检查代码后手动运行；链接中的代码不会自动执行。' : '')
-  const didAutoRun = useRef(Boolean(shared))
   const runId = useRef(0)
 
   const execute = useCallback(
     async (
       source = code,
       inputText = input,
+      selectedModel = preference,
     ) => {
       const id = ++runId.current
       setRunning(true)
@@ -69,6 +67,12 @@ export default function App() {
       setRunResult(null)
       setSteps([])
       try {
+        // Keep Babel's parser and instrumentation out of the initial bundle.
+        const [{ parseInput }, { runCode }] = await Promise.all([
+          import('./parseInput'),
+          import('./runtime/runCode'),
+        ])
+        if (id !== runId.current) return
         const parsedInput = parseInput(inputText)
         const result = await runCode(source, parsedInput)
         if (id !== runId.current) return
@@ -78,7 +82,8 @@ export default function App() {
         setSteps(nextSteps)
         setStepIndex(result.truncated ? nextSteps.length - 1 : 0)
         setMode('trace')
-        setPlaying(!result.truncated && nextSteps.length > 1)
+        setPlaying(!result.truncated && nextSteps.length > 1 &&
+          decideModel(result.events, result.analysis, selectedModel).model !== 'unknown')
       } catch (runError) {
         if (id !== runId.current) return
         setError(runError instanceof Error ? runError.message : String(runError))
@@ -89,12 +94,6 @@ export default function App() {
     },
     [code, input, preference],
   )
-
-  useEffect(() => {
-    if (didAutoRun.current) return
-    didAutoRun.current = true
-    void execute(initial.code, initial.input)
-  }, [execute, initial.code, initial.input])
 
   useEffect(() => {
     if (!playing || steps.length < 2) return
@@ -109,7 +108,7 @@ export default function App() {
   }, [playing, speed, stepIndex, steps.length])
 
   const decision = runResult ? decideModel(runResult.events, runResult.analysis, preference) : null
-  const model = decision?.model ?? initial.model
+  const model = decision?.model ?? 'unknown'
   const dpTarget = useMemo(() => selectDpTarget(steps), [steps])
   const currentStep = steps[stepIndex] ?? null
   const selectedDefinition = examples.find((example) => example.id === selectedExample)
@@ -143,7 +142,7 @@ export default function App() {
     setPreference('auto')
     setError(null)
     setNotice('')
-    void execute(example.code, example.input)
+    void execute(example.code, example.input, 'auto')
   }
 
   return (
@@ -224,9 +223,10 @@ export default function App() {
 
       {(decision || notice) ? (
         <div className={`model-notice${decision?.source === 'fallback' ? ' uncertain' : ''}`} role="status">
-          {notice || (decision ? (decision.source === 'fallback'
-            ? '无法可靠识别模型，暂以数组视图展示；请用上方菜单手动切换。'
-            : `当前${decision.source === 'manual' ? '手动选用' : '识别为'}「${modelOptions.find((option) => option.value === decision.model)?.label}」（${decision.reason}）；如不符可在上方一键切换。`) : '')}
+          {notice ? <span>{notice} </span> : null}
+          {decision ? (decision.source === 'fallback'
+            ? '无法可靠识别模型；轨迹仍可查看，请用上方菜单手动选择结构以显示动画。'
+            : `当前${decision.source === 'manual' ? '手动选用' : '识别为'}「${modelOptions.find((option) => option.value === decision.model)?.label}」（${decision.reason}）；如不符可在上方一键切换。`) : null}
           {runResult?.analysis.script ? ' 完整脚本已自行调用；输入框内容不会传入脚本。' : ''}
         </div>
       ) : <div className="model-notice quiet">粘贴真实函数无需改名；多参数按顺序输入数组。自动识别不准时可手动切换模型。</div>}

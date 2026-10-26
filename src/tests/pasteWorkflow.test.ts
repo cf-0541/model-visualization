@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { DpScene } from '../components/DpScene'
+import { VisualizationStage } from '../components/VisualizationStage'
 import { selectDpTarget } from '../trace/selectDp'
 import { instrumentCode } from '../instrumentation/instrument'
 import { parseInput } from '../parseInput'
@@ -114,6 +115,17 @@ describe('paste-and-run workflow', () => {
     expect(decideModel(paint.events, paint.analysis).model).toBe('array')
     expect(analyzeSource('function shift(q) { q.shift(); }\nfunction other(adj, q) { for (const n of adj[0]) q.push(n); }').structure).toBeNull()
     expect(analyzeSource('function rotate(arr) { arr[1] = arr[0]; arr[2] = arr[1]; }').structure).toBeNull()
+  })
+
+  it('keeps unrecognized code as unknown until the user picks a model', () => {
+    const run = runSnippet('function add(a, b) { return a + b; }', '[2, 3]')
+    const decision = decideModel(run.events, run.analysis)
+    expect(decision).toMatchObject({ model: 'unknown', source: 'fallback' })
+    const step = compileTrace(run.events)[0]
+    const stage = renderToStaticMarkup(createElement(VisualizationStage, { model: decision.model, step, running: false }))
+    expect(stage).toContain('尚未识别出可视化结构')
+    expect(stage).not.toContain('数组状态模型')
+    expect(decideModel(run.events, run.analysis, 'graph')).toMatchObject({ model: 'graph', source: 'manual' })
   })
 
   it('supports LeetCode-style variable functions and named argument objects', () => {
