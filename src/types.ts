@@ -107,6 +107,7 @@ export interface VisualSnapshot {
 }
 
 export interface VisualStep {
+  kind: 'key' | 'minor'
   index: number
   event: RuntimeEvent
   line: number

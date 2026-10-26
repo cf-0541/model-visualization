@@ -3,13 +3,16 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { DpScene } from '../components/DpScene'
 import { VisualizationStage } from '../components/VisualizationStage'
+import { Controls } from '../components/Controls'
+import { EventInspector } from '../components/EventInspector'
 import { selectDpTarget } from '../trace/selectDp'
 import { instrumentCode } from '../instrumentation/instrument'
 import { parseInput } from '../parseInput'
 import { createTraceRuntime } from '../runtime/traceRuntime'
 import { analyzeSource, argumentsFor } from '../sourceAnalysis'
 import { decideModel } from '../trace/detectModel'
-import { compileTrace } from '../trace/compileTrace'
+import { compileTrace, createTraceCursor, keyFrameIndices } from '../trace/compileTrace'
+import { playbackDelay } from '../trace/playback'
 import { examples } from '../examples'
 import { readShareHash, shareUrl } from '../share'
 import type { RuntimeEvent } from '../types'
@@ -27,6 +30,43 @@ function runSnippet(source: string, input: string) {
 }
 
 describe('paste-and-run workflow', () => {
+  it('compiles the real bubble-sort example into shorter, correctly paced playback', () => {
+    const example = examples.find((item) => item.id === 'bubble-sort')!
+    const run = runSnippet(example.code, example.input)
+    const steps = compileTrace(run.events)
+    expect(run.result).toEqual([1, 2, 3, 5, 6, 7])
+    expect(steps.length).toBeLessThan(run.events.length)
+    const keyIndices = keyFrameIndices(run.events)
+    expect(keyIndices.length).toBeLessThan(steps.length)
+    expect(keyIndices.filter((index) => run.events[index].type === 'write')).toHaveLength(
+      run.events.filter((event) => event.type === 'write').length,
+    )
+    expect(steps.at(-1)?.snapshot.tracked.arr).toEqual(run.result)
+    expect(steps.some((step) => step.kind === 'minor')).toBe(true)
+    const playbackMs = steps.slice(1).reduce((total, step) => total + playbackDelay(step.kind, steps.length, 1), 0)
+    expect(playbackMs).toBeLessThan((run.events.length - 1) * 680 * 0.7)
+  })
+
+  it('renders the mode switch and the original raw event in full playback', () => {
+    const eventTrace: RuntimeEvent[] = [
+      { seq: 0, type: 'line', line: 1 },
+      { seq: 1, type: 'read', line: 1, target: 'arr', path: [0], value: 7 },
+    ]
+    const controls = renderToStaticMarkup(createElement(Controls, {
+      index: 1, total: 2, playing: false, speed: 1, mode: 'all',
+      onIndexChange: () => {}, onPlayingChange: () => {}, onSpeedChange: () => {}, onModeChange: () => {},
+    }))
+    expect(controls).toContain('关键帧')
+    expect(controls).toContain('全程事件')
+    expect(controls).toContain('aria-label="播放模式"')
+    const inspector = renderToStaticMarkup(createElement(EventInspector, {
+      step: createTraceCursor(eventTrace).at(1), rawEvent: eventTrace[1],
+    }))
+    expect(inspector).toContain('READ')
+    expect(inspector).toContain('arr[0]')
+    expect(inspector).toContain('&quot;value&quot;:7')
+  })
+
   it('uses explicit model declarations without requiring module execution', () => {
     const source = `export const __model = 'graph';\nfunction bfs(adj, start) { return adj[start]; }`
     const run = runSnippet(source, '[[[1], [0]], 0]')

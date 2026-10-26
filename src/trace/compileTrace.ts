@@ -115,7 +115,152 @@ function pointerKey(pointer: TracePointer): string {
   return `${pointer.target}:${pointer.path.join('.')}`
 }
 
-export function compileTrace(events: RuntimeEvent[]): VisualStep[] {
+type FrameKind = VisualStep['kind']
+type FrameChoice = { index: number; kind: FrameKind; priority: number }
+
+// A line points to the work that follows it, until the next line event.
+// Reads only need their own frame when no richer event in that line will show them.
+function frameCandidates(events: RuntimeEvent[]): FrameChoice[] {
+  const choices: FrameChoice[] = []
+  let lineIndex = -1
+  let hasActivity = false
+  let hasKeyEvent = false
+  let lastRead = -1
+
+  function finishLine() {
+    if (lineIndex >= 0) {
+      choices.push({ index: lineIndex, kind: hasActivity ? 'key' : 'minor', priority: hasActivity ? 1 : 0 })
+    }
+    if (lastRead >= 0 && !hasKeyEvent) {
+      choices.push({ index: lastRead, kind: 'minor', priority: 0 })
+    }
+  }
+
+  events.forEach((event, index) => {
+    if (event.type === 'line') {
+      finishLine()
+      lineIndex = index
+      hasActivity = false
+      hasKeyEvent = false
+      lastRead = -1
+      return
+    }
+    if (event.type === 'read') {
+      hasActivity = true
+      lastRead = index
+    } else if (event.type === 'write' || event.type === 'branch' ||
+      event.type === 'call' || event.type === 'return') {
+      hasActivity = true
+      hasKeyEvent = true
+      choices.push({ index, kind: 'key', priority: event.type === 'write' ? 2 : 3 })
+    } else if (event.type === 'done' || event.type === 'error') {
+      choices.push({ index, kind: 'key', priority: 4 })
+    } else if (event.type === 'track') {
+      choices.push({ index, kind: 'minor', priority: 0 })
+    }
+  })
+  finishLine()
+  return choices
+}
+
+// When key events alone exceed the memory cap, prefer semantic events over
+// line/reading frames, and spread the remaining slots across the trace.
+function selectFrames(events: RuntimeEvent[]): Map<number, FrameKind> {
+  if (!events.length) return new Map()
+  const candidates = frameCandidates(events)
+  const byIndex = new Map(candidates.map((choice) => [choice.index, choice]))
+  for (const index of [0, events.length - 1]) {
+    if (!byIndex.has(index)) {
+      const type = events[index].type
+      byIndex.set(index, { index, kind: type === 'error' || type === 'done' ? 'key' : 'minor', priority: 4 })
+    }
+  }
+  if (byIndex.size <= MAX_VISUAL_STEPS) {
+    return new Map([...byIndex.values()].map(({ index, kind }) => [index, kind]))
+  }
+  const selected = new Map<number, FrameKind>()
+  const anchors = [0, events.length - 1]
+  for (const index of anchors) selected.set(index, byIndex.get(index)!.kind)
+
+  const positions = [...selected.keys()].sort((a, b) => a - b)
+  function insertionPoint(index: number): number {
+    let low = 0
+    let high = positions.length
+    while (low < high) {
+      const middle = (low + high) >>> 1
+      if (positions[middle] < index) low = middle + 1
+      else high = middle
+    }
+    return low
+  }
+
+  for (let priority = 4; priority >= 0 && selected.size < MAX_VISUAL_STEPS; priority -= 1) {
+    const pending = [...byIndex.values()].filter((choice) => choice.priority === priority && !selected.has(choice.index))
+    while (pending.length && selected.size < MAX_VISUAL_STEPS) {
+      // Farthest-first fills the largest uncovered region, rather than taking
+      // every Nth raw event (which can silently discard the interesting ones).
+      let best = 0
+      let bestDistance = -1
+      for (let i = 0; i < pending.length; i += 1) {
+        const index = pending[i].index
+        const insertion = insertionPoint(index)
+        const distance = Math.min(
+          insertion > 0 ? index - positions[insertion - 1] : Infinity,
+          insertion < positions.length ? positions[insertion] - index : Infinity,
+        )
+        if (distance > bestDistance) {
+          bestDistance = distance
+          best = i
+        }
+      }
+      const [choice] = pending.splice(best, 1)
+      selected.set(choice.index, choice.kind)
+      positions.splice(insertionPoint(choice.index), 0, choice.index)
+    }
+  }
+  return selected
+}
+
+// The key-mode timeline is not capped: even a dense run of writes keeps each
+// write addressable. Only the bounded compiler materializes 400 snapshots.
+export function keyFrameIndices(events: RuntimeEvent[]): number[] {
+  if (!events.length) return []
+  const indices = new Set(frameCandidates(events)
+    .filter(({ kind }) => kind === 'key')
+    .map(({ index }) => index))
+  indices.add(0) // Initial state, even if it is only a track event.
+  indices.add(events.length - 1) // Final state or error.
+  return [...indices].sort((a, b) => a - b)
+}
+
+// A seekable cursor holds only mutable replay state and its current snapshot.
+// Backward seeks restart the replay; forward playback never clones skipped frames.
+export function createTraceCursor(events: RuntimeEvent[], kinds?: ReadonlyMap<number, FrameKind>) {
+  const eventKinds = kinds ?? new Map(frameCandidates(events).map(({ index, kind }) => [index, kind]))
+  let state = createState()
+  let next = 0
+  let currentIndex = -1
+  let current: VisualStep | null = null
+
+  function at(index: number): VisualStep | null {
+    if (index < 0 || index >= events.length) return null
+    if (index === currentIndex) return current
+    if (index < currentIndex) {
+      state = createState()
+      next = 0
+    }
+    while (next <= index) state.apply(events[next++])
+    current = state.frame(events[index], index, eventKinds.get(index) ?? 'minor')
+    currentIndex = index
+    return current
+  }
+  function kindAt(index: number): FrameKind {
+    return eventKinds.get(index) ?? 'minor'
+  }
+  return { at, kindAt }
+}
+
+function createState() {
   const tracked: Record<string, unknown> = {}
   const callStack: CallFrame[] = []
   let pendingReads: TracePointer[] = []
@@ -124,11 +269,7 @@ export function compileTrace(events: RuntimeEvent[]): VisualStep[] {
   let branch: { expression: string; result: boolean } | null = null
   let result: unknown = undefined
 
-  // Replay every event, but materialize only bounded, evenly spaced frames.
-  // This preserves state changes between frames without cloning a full snapshot each time.
-  const stride = Math.max(1, Math.ceil((events.length - 1) / (MAX_VISUAL_STEPS - 1)))
-  const steps: VisualStep[] = []
-  events.forEach((event, index) => {
+  function apply(event: RuntimeEvent) {
     if (event.type === 'line') {
       activeWrite = null
       branch = null
@@ -187,9 +328,9 @@ export function compileTrace(events: RuntimeEvent[]): VisualStep[] {
     }
 
     if (event.type === 'done') result = cloneValue(event.result)
+  }
 
-    if (index % stride !== 0 && index !== events.length - 1) return
-
+  function frame(event: RuntimeEvent, index: number, kind: FrameKind): VisualStep {
     const snapshot: VisualSnapshot = {
       tracked: cloneValue(tracked),
       reads: cloneValue(activeReads),
@@ -201,14 +342,26 @@ export function compileTrace(events: RuntimeEvent[]): VisualStep[] {
     const copy = cloneValue(event)
     const text = describe(copy)
 
-    steps.push({
-      index: steps.length,
+    return {
+      index,
+      kind,
       event: copy,
       line: event.line,
       title: text.title,
       description: text.description,
       snapshot,
-    })
-  })
+    }
+  }
+  return { apply, frame }
+}
+
+export function compileTrace(events: RuntimeEvent[]): VisualStep[] {
+  const selected = selectFrames(events)
+  const cursor = createTraceCursor(events, selected)
+  const steps: VisualStep[] = []
+  for (const index of [...selected.keys()].sort((a, b) => a - b)) {
+    const step = cursor.at(index)!
+    steps.push({ ...step, index: steps.length })
+  }
   return steps
 }

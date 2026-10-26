@@ -1,12 +1,12 @@
 import { Activity, GitBranch, Layers3 } from 'lucide-react'
-import type { VisualStep } from '../types'
+import type { RuntimeEvent, VisualStep } from '../types'
 
 interface EventInspectorProps {
   step: VisualStep | null
+  rawEvent?: RuntimeEvent | null
 }
 
-function formatTarget(step: VisualStep): string {
-  const event = step.event
+function formatTarget(event: RuntimeEvent): string {
   if (event.type === 'read' || event.type === 'write') {
     return `${event.target}${event.path.map((part) => `[${part}]`).join('')}`
   }
@@ -16,7 +16,7 @@ function formatTarget(step: VisualStep): string {
   return `LINE ${event.line}`
 }
 
-export function EventInspector({ step }: EventInspectorProps) {
+export function EventInspector({ step, rawEvent }: EventInspectorProps) {
   if (!step) {
     return (
       <div className="event-strip empty">
@@ -26,11 +26,11 @@ export function EventInspector({ step }: EventInspectorProps) {
   }
 
   return (
-    <div className="event-strip" aria-live="polite">
-      <div className={`event-kind kind-${step.event.type}`}>
-        <Activity size={14} /> {step.event.type.toUpperCase()}
+    <div className={`event-strip${rawEvent ? ' with-raw' : ''}`} aria-live="polite">
+      <div className={`event-kind kind-${(rawEvent ?? step.event).type}`}>
+        <Activity size={14} /> {(rawEvent ?? step.event).type.toUpperCase()}
       </div>
-      <div className="event-target">{formatTarget(step)}</div>
+      <div className="event-target">{formatTarget(rawEvent ?? step.event)}</div>
       <div className="event-metric">
         <Layers3 size={14} /> 调用深度 {step.snapshot.callStack.length}
       </div>
@@ -39,6 +39,7 @@ export function EventInspector({ step }: EventInspectorProps) {
           <GitBranch size={14} /> {step.snapshot.branch.result ? '分支成立' : '分支跳过'}
         </div>
       ) : null}
+      {rawEvent ? <code className="event-raw">{JSON.stringify(rawEvent)}</code> : null}
     </div>
   )
 }

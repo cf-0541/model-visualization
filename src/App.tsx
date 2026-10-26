@@ -11,11 +11,13 @@ import {
 } from 'lucide-react'
 import { CodePanel } from './components/CodePanel'
 import { Controls } from './components/Controls'
+import type { PlaybackMode } from './components/Controls'
 import { EventInspector } from './components/EventInspector'
 import { VisualizationStage } from './components/VisualizationStage'
 import { examples } from './examples'
 import { readShareHash, shareUrl } from './share'
-import { compileTrace } from './trace/compileTrace'
+import { compileTrace, createTraceCursor, keyFrameIndices } from './trace/compileTrace'
+import { playbackDelay } from './trace/playback'
 import { decideModel } from './trace/detectModel'
 import { selectDpTarget } from './trace/selectDp'
 import type { ModelPreference, RunResult, VisualStep } from './types'
@@ -46,6 +48,7 @@ export default function App() {
   const [runResult, setRunResult] = useState<RunResult | null>(null)
   const [steps, setSteps] = useState<VisualStep[]>([])
   const [stepIndex, setStepIndex] = useState(0)
+  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>('key')
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState(1)
   const [running, setRunning] = useState(false)
@@ -77,12 +80,14 @@ export default function App() {
         const result = await runCode(source, parsedInput)
         if (id !== runId.current) return
         const nextSteps = compileTrace(result.events)
+        const nextKeyIndices = keyFrameIndices(result.events)
         if (result.truncated) setNotice(result.truncated)
         setRunResult(result)
         setSteps(nextSteps)
-        setStepIndex(result.truncated ? nextSteps.length - 1 : 0)
+        setPlaybackMode('key')
+        setStepIndex(result.truncated ? Math.max(0, nextKeyIndices.length - 1) : 0)
         setMode('trace')
-        setPlaying(!result.truncated && nextSteps.length > 1 &&
+        setPlaying(!result.truncated && nextKeyIndices.length > 1 &&
           decideModel(result.events, result.analysis, selectedModel).model !== 'unknown')
       } catch (runError) {
         if (id !== runId.current) return
@@ -95,27 +100,44 @@ export default function App() {
     [code, input, preference],
   )
 
+  const events = runResult?.events
+  const keyIndices = useMemo(() => events ? keyFrameIndices(events) : [], [events])
+  const cursor = useMemo(() => events ? createTraceCursor(events) : null, [events])
+  const total = playbackMode === 'key' ? keyIndices.length : events?.length ?? 0
+  const eventIndex = playbackMode === 'key' ? keyIndices[stepIndex] : stepIndex
+  const currentStep = useMemo(() => cursor?.at(eventIndex ?? -1) ?? null, [cursor, eventIndex])
+
   useEffect(() => {
-    if (!playing || steps.length < 2) return
-    if (stepIndex >= steps.length - 1) {
+    if (!playing || total < 2) return
+    if (stepIndex >= total - 1) {
       setPlaying(false)
       return
     }
+    const nextEventIndex = playbackMode === 'key' ? keyIndices[stepIndex + 1] : stepIndex + 1
+    const kind = playbackMode === 'key' ? 'key' : cursor?.kindAt(nextEventIndex) ?? 'minor'
     const timer = window.setTimeout(() => {
-      setStepIndex((current) => Math.min(steps.length - 1, current + 1))
-    }, 680 / speed)
+      setStepIndex((current) => Math.min(total - 1, current + 1))
+    }, playbackDelay(kind, total, speed))
     return () => window.clearTimeout(timer)
-  }, [playing, speed, stepIndex, steps.length])
+  }, [playing, speed, stepIndex, total, playbackMode, keyIndices, cursor])
 
   const decision = runResult ? decideModel(runResult.events, runResult.analysis, preference) : null
   const model = decision?.model ?? 'unknown'
   const dpTarget = useMemo(() => selectDpTarget(steps), [steps])
-  const currentStep = steps[stepIndex] ?? null
+  const changePlaybackMode = (next: PlaybackMode) => {
+    if (next === playbackMode) return
+    const currentEvent = eventIndex ?? 0
+    setPlaying(false)
+    setStepIndex(next === 'all' ? currentEvent : keyIndices.reduce((position, index, candidate) => index <= currentEvent ? candidate : position, 0))
+    setPlaybackMode(next)
+  }
   const selectedDefinition = examples.find((example) => example.id === selectedExample)
   const invalidate = () => {
     runId.current += 1
     setRunResult(null)
     setSteps([])
+    setStepIndex(0)
+    setPlaybackMode('key')
     setRunning(false)
     setPlaying(false)
     setMode('edit')
@@ -252,10 +274,11 @@ export default function App() {
 
         <div className="stage-column">
           <VisualizationStage model={model} step={currentStep} running={running} dpTarget={dpTarget} />
-          <EventInspector step={currentStep} />
+          <EventInspector step={currentStep} rawEvent={playbackMode === 'all' ? events?.[eventIndex] : null} />
           <Controls
             index={stepIndex}
-            total={steps.length}
+            total={total}
+            mode={playbackMode}
             playing={playing}
             speed={speed}
             disabled={running}
@@ -264,10 +287,11 @@ export default function App() {
               setPlaying(false)
             }}
             onPlayingChange={(nextPlaying) => {
-              if (stepIndex >= steps.length - 1 && nextPlaying) setStepIndex(0)
+              if (stepIndex >= total - 1 && nextPlaying) setStepIndex(0)
               setPlaying(nextPlaying)
             }}
             onSpeedChange={setSpeed}
+            onModeChange={changePlaybackMode}
           />
         </div>
       </section>

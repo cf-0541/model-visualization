@@ -7,15 +7,19 @@ import {
   SkipBack,
 } from 'lucide-react'
 
+export type PlaybackMode = 'key' | 'all'
+
 interface ControlsProps {
   index: number
   total: number
   playing: boolean
   speed: number
+  mode: PlaybackMode
   disabled?: boolean
   onIndexChange: (index: number) => void
   onPlayingChange: (playing: boolean) => void
   onSpeedChange: (speed: number) => void
+  onModeChange: (mode: PlaybackMode) => void
 }
 
 const speeds = [0.5, 1, 1.5, 2]
@@ -25,16 +29,27 @@ export function Controls({
   total,
   playing,
   speed,
+  mode,
   disabled = false,
   onIndexChange,
   onPlayingChange,
   onSpeedChange,
+  onModeChange,
 }: ControlsProps) {
   const safeTotal = Math.max(1, total)
   const safeIndex = Math.min(index, safeTotal - 1)
 
   return (
     <div className="playback" aria-label="动画播放控制">
+      <div className="playback-mode" role="group" aria-label="播放模式">
+        <span>播放模式</span>
+        <button type="button" className={mode === 'key' ? 'active' : ''}
+          aria-pressed={mode === 'key'} disabled={disabled || total === 0}
+          onClick={() => onModeChange('key')}>关键帧</button>
+        <button type="button" className={mode === 'all' ? 'active' : ''}
+          aria-pressed={mode === 'all'} disabled={disabled || total === 0}
+          onClick={() => onModeChange('all')}>全程事件</button>
+      </div>
       <div className="transport-buttons">
         <button
           className="icon-button"
