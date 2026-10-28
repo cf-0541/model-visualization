@@ -55,6 +55,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState(shared ? '分享链接已载入，请检查代码后手动运行；链接中的代码不会自动执行。' : '')
   const runId = useRef(0)
+  const workspaceRef = useRef<HTMLElement>(null)
 
   const execute = useCallback(
     async (
@@ -99,6 +100,14 @@ export default function App() {
     },
     [code, input, preference],
   )
+
+  useEffect(() => {
+    if (runResult && window.matchMedia('(max-width: 700px)').matches) {
+      // Show both the compact trace and the model after running on narrow screens.
+      // This runs once per result; playback only scrolls inside the code panel.
+      workspaceRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    }
+  }, [runResult])
 
   const events = runResult?.events
   const keyIndices = useMemo(() => events ? keyFrameIndices(events) : [], [events])
@@ -253,7 +262,7 @@ export default function App() {
         </div>
       ) : <div className="model-notice quiet">粘贴真实函数无需改名；多参数按顺序输入数组。自动识别不准时可手动切换模型。</div>}
 
-      <section className="workspace">
+      <section className="workspace" ref={workspaceRef}>
         <CodePanel
           code={code}
           input={input}

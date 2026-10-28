@@ -1462,7 +1462,27 @@ input:focus-visible {
   }
 }
 
-@media (max-width: 860px) {
+@media (min-width: 701px) and (max-width: 860px) {
+  .workspace {
+    grid-template-columns: minmax(280px, 34%) minmax(0, 1fr);
+  }
+
+  .scene-copy {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .playback {
+    grid-template-columns: 1fr auto;
+  }
+
+  .timeline-wrap {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+}
+
+@media (max-width: 700px) {
   body {
     overflow: auto;
   }
@@ -1501,15 +1521,24 @@ input:focus-visible {
   }
 
   .code-panel {
-    min-height: 570px;
+    min-height: 470px;
+  }
+
+  .code-panel.tracing {
+    height: clamp(210px, 30vh, 280px);
+    min-height: 0;
+  }
+
+  .code-panel.tracing .input-section {
+    display: none;
   }
 
   .stage-column {
-    min-height: 640px;
+    min-height: 530px;
   }
 
   .visual-stage {
-    min-height: 500px;
+    min-height: 390px;
   }
 
   .footer-status {

@@ -42,13 +42,18 @@ export function CodePanel({
 
   useEffect(() => {
     if (mode !== 'trace') return
-    traceRef.current
-      ?.querySelector(`[data-line="${currentLine}"]`)
-      ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    const container = traceRef.current
+    const active = container?.querySelector(`[data-line="${currentLine}"]`)
+    if (!container || !active) return
+    // Only scroll the code viewport. scrollIntoView() also scrolls the page,
+    // hiding the model when the panels are stacked on a narrow screen.
+    const offset = active.getBoundingClientRect().top - container.getBoundingClientRect().top
+    const desired = container.scrollTop + offset - (container.clientHeight - active.clientHeight) / 2
+    container.scrollTo({ top: Math.max(0, desired), behavior: 'smooth' })
   }, [currentLine, mode])
 
   return (
-    <aside className="code-panel panel-shell" aria-label="代码与输入">
+    <aside className={`code-panel panel-shell${mode === 'trace' ? ' tracing' : ''}`} aria-label="代码与输入">
       <div className="panel-heading code-heading">
         <div className="heading-copy">
           <span className="eyebrow">SOURCE</span>

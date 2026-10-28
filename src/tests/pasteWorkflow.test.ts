@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { CodePanel } from '../components/CodePanel'
 import { DpScene } from '../components/DpScene'
 import { GraphScene } from '../components/GraphScene'
 import { VisualizationStage } from '../components/VisualizationStage'
@@ -46,6 +47,21 @@ describe('paste-and-run workflow', () => {
     expect(steps.some((step) => step.kind === 'minor')).toBe(true)
     const playbackMs = steps.slice(1).reduce((total, step) => total + playbackDelay(step.kind, steps.length, 1), 0)
     expect(playbackMs).toBeLessThan((run.events.length - 1) * 680 * 0.7)
+  })
+
+  it('keeps the traced line in a dedicated code pane alongside the model', () => {
+    const props = {
+      code: 'const x = 1;\nreturn x;', input: '1', currentLine: 2,
+      currentEvent: { seq: 0, type: 'line' as const, line: 2 }, error: null,
+      onCodeChange: () => {}, onInputChange: () => {}, onModeChange: () => {},
+    }
+    const trace = renderToStaticMarkup(createElement(CodePanel, { ...props, mode: 'trace' }))
+    expect(trace).toContain('code-panel panel-shell tracing')
+    expect(trace).toContain('逐行执行代码')
+    expect(trace).toContain('return x;')
+    expect(trace).toContain('code-line active')
+    expect(renderToStaticMarkup(createElement(CodePanel, { ...props, mode: 'edit' })))
+      .not.toContain('panel-shell tracing')
   })
 
   it('renders the mode switch and the original raw event in full playback', () => {
