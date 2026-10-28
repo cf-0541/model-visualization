@@ -23,6 +23,7 @@ const MAX_SNAPSHOT_NODES = 512
 const MAX_TRACKED_TARGETS = 12
 export const DEFAULT_MAX_EVENTS = 4_000
 export const DEFAULT_MAX_ITERATIONS = 10_000
+const ARRAY_MUTATORS = new Set(['copyWithin', 'fill', 'pop', 'push', 'reverse', 'shift', 'sort', 'splice', 'unshift'])
 
 type RuntimeEventInput = {
   [Kind in RuntimeEvent['type']]: Omit<Extract<RuntimeEvent, { type: Kind }>, 'seq'>
@@ -130,6 +131,25 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
       get(raw, key, receiver) {
         const value = Reflect.get(raw, key, receiver)
         const part = displayKey(key)
+        // Native array methods write several indices before updating length.
+        // Record one completed mutation so playback never presents their
+        // intermediate (e.g. shift()'s duplicated) queue as a stable state.
+        if (Array.isArray(raw) && typeof key === 'string' && ARRAY_MUTATORS.has(key) &&
+          value === (Array.prototype as unknown as Record<string, unknown>)[key]) {
+          return function (this: unknown, ...args: unknown[]) {
+            if (this !== receiver) return Reflect.apply(value, this, args)
+            ensureCapacity()
+            const before = snapshot(raw)
+            const unwrappedArgs = args.map((arg) => isObject(arg) ? proxyMeta.get(arg)?.raw ?? arg : arg)
+            let result: unknown
+            try {
+              result = Reflect.apply(value, raw, unwrappedArgs)
+            } finally {
+              emit({ type: 'write', line: currentLine, target, path: [...path], before, after: snapshot(raw) })
+            }
+            return result === raw ? receiver : result
+          }
+        }
         if (part === null || key === 'length' || typeof value === 'function') return value
 
         const nextPath = [...path, part]

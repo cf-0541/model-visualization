@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { examples } from '../examples'
 import { instrumentCode } from '../instrumentation/instrument'
 import { createTraceRuntime, TraceLimitError } from '../runtime/traceRuntime'
+import { createTraceCursor, keyFrameIndices } from '../trace/compileTrace'
 import type { RuntimeEvent } from '../types'
 
 function execute(source: string, input: unknown): { events: RuntimeEvent[]; result: unknown } {
@@ -72,6 +73,37 @@ describe('AST instrumentation', () => {
 
     expect(done?.result).toEqual([1, 2, 3, 5, 6, 7])
     expect(() => structuredClone(done?.result)).not.toThrow()
+  })
+
+  it('records array mutations atomically instead of showing shift internals as queue frames', () => {
+    const trace = createTraceRuntime()
+    const queue = trace.track('queue', [1, 2])
+    trace.line(7)
+    queue.push(3)
+    expect(queue.shift()).toBe(1)
+    expect(queue).toEqual([2, 3])
+    const writes = trace.getEvents().filter((event) => event.type === 'write')
+    expect(writes).toMatchObject([
+      { target: 'queue', path: [], before: [1, 2], after: [1, 2, 3] },
+      { target: 'queue', path: [], before: [1, 2, 3], after: [2, 3] },
+    ])
+    const cursor = createTraceCursor(trace.getEvents())
+    expect(keyFrameIndices(trace.getEvents())
+      .filter((index) => trace.getEvents()[index].type === 'write')
+      .map((index) => cursor.at(index)?.snapshot.tracked.queue)).toEqual([[1, 2, 3], [2, 3]])
+    expect(trace.getEvents().map((_, index) => cursor.at(index)?.snapshot.tracked.queue)).not.toContainEqual([2, 3, 3])
+  })
+
+  it('keeps nested array mutations and chaining attached to tracked state', () => {
+    const trace = createTraceRuntime()
+    const adj = trace.track('adj', [[1], [0]])
+    adj[0].push(2)
+    expect(adj[0].reverse()).toBe(adj[0])
+    const last = createTraceCursor(trace.getEvents()).at(trace.getEvents().length - 1)
+    expect(last?.snapshot.tracked.adj).toEqual([[2, 1], [0]])
+    expect(trace.getEvents().filter((event) => event.type === 'write')).toMatchObject([
+      { path: [0], after: [1, 2] }, { path: [0], after: [2, 1] },
+    ])
   })
 
   it('stops emitting after the configured event limit and marks a partial trace', () => {

@@ -296,7 +296,7 @@ function createState() {
 
     if (event.type === 'write') {
       if (!(event.target in tracked)) tracked[event.target] = []
-      setAtPath(tracked[event.target], event.path, event.after)
+      tracked[event.target] = setAtPath(tracked[event.target], event.path, event.after)
       activeReads = [...pendingReads]
       activeWrite = {
         target: event.target,

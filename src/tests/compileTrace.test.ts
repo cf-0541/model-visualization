@@ -159,5 +159,6 @@ describe('trace compiler', () => {
     expect(detectModel(events, 'array')).toBe('array')
     expect(detectModel([], 'graph')).toBe('graph')
     expect(detectModel([])).toBe('unknown')
+    expect(detectModel([{ seq: 0, type: 'write', line: 1, target: 'items', path: [], before: [1, 2], after: [2, 1] }])).toBe('array')
   })
 })

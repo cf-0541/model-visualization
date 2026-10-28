@@ -20,7 +20,11 @@ function graphData(step: VisualStep): [string, Array<[string, string[]]>] | null
 
 export function GraphScene({ step }: { step: VisualStep }) {
   const selected = graphData(step)
-  if (!selected) return <div className="scene-empty">未找到邻接表；请传入数组或对象形式的图。</div>
+  if (!selected) return <div className="scene-empty">{
+    step.event.type === 'done' || step.event.type === 'error'
+      ? '未找到邻接表；请传入数组或对象形式的图。'
+      : '等待捕获邻接表…'
+  }</div>
   const [target, graph] = selected
   const nodes = graph.slice(0, 18)
   const positions = new Map(nodes.map(([node], index) => [node, {

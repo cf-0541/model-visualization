@@ -21,7 +21,7 @@ export function decideModel(
     return { model: 'dp', source: 'trace', reason: '运行轨迹包含命名状态表' }
   }
   const arrayActivity = events.some((event) => (event.type === 'read' || event.type === 'write') &&
-    typeof event.path[0] === 'number')
+    (typeof event.path[0] === 'number' || (event.type === 'write' && event.path.length === 0 && Array.isArray(event.after))))
   if (arrayActivity) return { model: 'array', source: 'trace', reason: '运行轨迹包含数组索引操作' }
   return { model: 'unknown', source: 'fallback', reason: '没有足够的结构特征' }
 }

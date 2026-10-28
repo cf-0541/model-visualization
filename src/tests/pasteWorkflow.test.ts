@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { DpScene } from '../components/DpScene'
+import { GraphScene } from '../components/GraphScene'
 import { VisualizationStage } from '../components/VisualizationStage'
 import { Controls } from '../components/Controls'
 import { EventInspector } from '../components/EventInspector'
@@ -90,6 +91,14 @@ describe('paste-and-run workflow', () => {
     const last = compileTrace(run.events).at(-1)!
     expect(last.snapshot.tracked.queue).toEqual([])
     expect(last.snapshot.tracked.seen).toEqual([true, true, true, true])
+    const cursor = createTraceCursor(run.events)
+    const initial = renderToStaticMarkup(createElement(GraphScene, { step: cursor.at(0)! }))
+    expect(initial).toContain('等待捕获邻接表')
+    expect(initial).not.toContain('未找到邻接表')
+    for (let index = 0; index < run.events.length; index += 1) {
+      const queue = cursor.at(index)?.snapshot.tracked.queue
+      if (Array.isArray(queue)) expect(new Set(queue).size).toBe(queue.length)
+    }
   })
 
   it('detects a renamed DP table from indexed dependencies', () => {
