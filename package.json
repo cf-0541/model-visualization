@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "pilot:ast": "node experiments/lightweight-ast/verify.mjs",
+    "pilot:build": "node experiments/lightweight-ast/measure-app.mjs",
+    "pilot:browser": "node experiments/lightweight-ast/browser.mjs"
   },
   "dependencies": {
     "@babel/generator": "^7.28.5",
@@ -25,6 +28,9 @@
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.4",
+    "acorn": "^8.19.0",
+    "acorn-walk": "^8.3.5",
+    "astring": "^1.9.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.7",
     "vitest": "^3.2.4"

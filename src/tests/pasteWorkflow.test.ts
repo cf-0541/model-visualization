@@ -11,6 +11,7 @@ import { selectDpTarget } from '../trace/selectDp'
 import { instrumentCode } from '../instrumentation/instrument'
 import { parseInput } from '../parseInput'
 import { createTraceRuntime } from '../runtime/traceRuntime'
+import { runCode } from '../runtime/runCode'
 import { analyzeSource, argumentsFor } from '../sourceAnalysis'
 import { decideModel } from '../trace/detectModel'
 import { compileTrace, createTraceCursor, keyFrameIndices } from '../trace/compileTrace'
@@ -210,7 +211,7 @@ describe('paste-and-run workflow', () => {
   })
 
   it('returns the captured script result through the actual Worker handler', async () => {
-    const responses: Array<{ ok: boolean; result?: unknown; truncated?: string; events?: Array<{ type: string; name?: string }> }> = []
+    const responses: Array<{ ok: boolean; result?: unknown; error?: string; truncated?: string; events?: Array<{ type: string; name?: string }> }> = []
     const workerScope = {
       postMessage: (response: typeof responses[number]) => responses.push(response),
     } as unknown as {
@@ -253,6 +254,55 @@ describe('paste-and-run workflow', () => {
       } } as MessageEvent<unknown>)
       expect(responses[3]).toMatchObject({ ok: true, truncated: expect.stringContaining('5 次循环迭代上限') })
       expect(responses[3].events?.at(-1)).toMatchObject({ type: 'error' })
+
+      const asyncSuccess = instrumentCode('async function solve(values) { const pending = Promise.resolve(5); values[0] = await pending; return values; }')
+      workerScope.onmessage({ data: { code: asyncSuccess.code, entry: 'solve', scriptResult: null,
+        args: [[0]], maxEvents: 100, maxIterations: 100,
+      } } as MessageEvent<unknown>)
+      await vi.waitFor(() => expect(responses).toHaveLength(5))
+      expect(responses[4]).toMatchObject({ ok: true, result: [5] })
+      expect(responses[4].events?.at(-1)).toMatchObject({ type: 'done' })
+
+      const asyncFailure = instrumentCode('async function solve() { await Promise.resolve(); throw new Error("异步失败"); }')
+      workerScope.onmessage({ data: { code: asyncFailure.code, entry: 'solve', scriptResult: null,
+        args: [], maxEvents: 100, maxIterations: 100,
+      } } as MessageEvent<unknown>)
+      await vi.waitFor(() => expect(responses).toHaveLength(6))
+      expect(responses[5]).toMatchObject({ ok: false, error: '异步失败' })
+      expect(responses[5].events?.at(-1)).toMatchObject({ type: 'error' })
+
+      const asyncLimit = instrumentCode('async function solve(values) { await Promise.resolve(); for (let i = 0; i < 20; i++) values.push(i); return values; }')
+      workerScope.onmessage({ data: { code: asyncLimit.code, entry: 'solve', scriptResult: null,
+        args: [[]], maxEvents: 10, maxIterations: 100,
+      } } as MessageEvent<unknown>)
+      await vi.waitFor(() => expect(responses).toHaveLength(7))
+      expect(responses[6]).toMatchObject({ ok: true, truncated: expect.stringContaining('10 条事件上限') })
+      expect(responses[6].events?.at(-1)).toMatchObject({ type: 'error' })
+
+      const generator = instrumentCode('function solve() { const values = (function* () { yield 2; yield 3; })(); return values.next().value + values.next().value; }')
+      workerScope.onmessage({ data: { code: generator.code, entry: 'solve', scriptResult: null,
+        args: [], maxEvents: 100, maxIterations: 100,
+      } } as MessageEvent<unknown>)
+      expect(responses[7]).toMatchObject({ ok: true, result: 5 })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('terminates a Worker that never settles within the execution timeout', async () => {
+    let terminated = 0
+    class IdleWorker {
+      onmessage = null
+      onerror = null
+      postMessage() {}
+      terminate() { terminated++ }
+    }
+    vi.stubGlobal('Worker', IdleWorker)
+    vi.stubGlobal('window', { setTimeout })
+    try {
+      await expect(runCode('async function solve() { await new Promise(() => {}); }', null, { timeoutMs: 10 }))
+        .rejects.toThrow(/执行超过 10ms/)
+      expect(terminated).toBe(1)
     } finally {
       vi.unstubAllGlobals()
     }

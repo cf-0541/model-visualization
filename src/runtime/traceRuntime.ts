@@ -33,6 +33,16 @@ function isObject(value: unknown): value is object {
   return typeof value === 'object' && value !== null
 }
 
+// Native internal-slot objects reject method calls made through an ordinary Proxy.
+function opaqueKind(value: object): string | null {
+  switch (Object.prototype.toString.call(value)) {
+    case '[object Promise]': return 'Promise'
+    case '[object Generator]': return 'Generator'
+    case '[object AsyncGenerator]': return 'AsyncGenerator'
+    default: return null
+  }
+}
+
 function displayKey(key: PropertyKey): string | number | null {
   if (typeof key === 'symbol') return null
   const text = String(key)
@@ -82,6 +92,8 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
     if (!isObject(input)) return String(input)
 
     const raw = proxyMeta.get(input)?.raw ?? input
+    const kind = opaqueKind(raw)
+    if (kind) return `[${kind}]`
     if (depth >= MAX_SNAPSHOT_DEPTH) return '[…]'
     if (seen.has(raw)) return '[Circular]'
     seen.add(raw)
@@ -118,6 +130,7 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
 
   const proxyFor = <T extends object>(rawValue: T, target: string, path: TracePath): T => {
     const unwrapped = proxyMeta.get(rawValue)?.raw ?? rawValue
+    if (opaqueKind(unwrapped)) return unwrapped as T
     const cacheKey = `${target}:${path.map(String).join('.')}`
     let cache = proxyCache.get(unwrapped)
     if (!cache) {
@@ -211,6 +224,7 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
       }
 
       const raw = proxyMeta.get(value)?.raw ?? value
+      if (opaqueKind(raw)) return raw as typeof value
       let names = trackedNames.get(raw)
       if (!names) {
         names = new Set()

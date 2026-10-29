@@ -18,6 +18,27 @@ function execute(source: string, input: unknown): { events: RuntimeEvent[]; resu
   return { events: trace.getEvents(), result }
 }
 
+describe('native iterator and Promise tracking', () => {
+  it('keeps a tracked local generator callable through next()', () => {
+    const { result } = execute('function solve() { const values = (function* () { yield 2; yield 3; })(); return values.next().value + values.next().value; }', undefined)
+    expect(result).toBe(5)
+  })
+
+  it('keeps tracked async generators callable through next()', async () => {
+    const trace = createTraceRuntime()
+    const iterator = trace.track('iterator', (async function* () { yield 9 })())
+    expect((await iterator.next()).value).toBe(9)
+  })
+
+  it('keeps nested generators and promises unproxied while tracking enclosing objects', async () => {
+    const trace = createTraceRuntime()
+    const container = trace.track('container', { iterator: (function* () { yield 7 })(), promise: Promise.resolve(4) })
+    expect(container.iterator.next().value).toBe(7)
+    expect(await container.promise).toBe(4)
+    expect(trace.getEvents().some((event) => event.type === 'track' && event.target === 'container')).toBe(true)
+  })
+})
+
 describe('AST instrumentation', () => {
   it('captures line, read, write, call and return events for DP code', () => {
     const example = examples.find((item) => item.id === 'house-robber')!
