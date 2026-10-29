@@ -1,6 +1,6 @@
 import { parse } from '@babel/parser'
 import traverse from '@babel/traverse'
-import * as t from '@babel/types'
+import type * as t from '@babel/types'
 import type { ModelKind } from './types'
 
 const models: ModelKind[] = ['array', 'dp', 'segment-tree', 'graph']
@@ -15,9 +15,17 @@ export interface SourceAnalysis {
   reason: string
 }
 
+function isDeclaration(node: t.Node): node is t.Declaration {
+  // The parser is configured for plain JavaScript; these are its declaration kinds.
+  return node.type === 'FunctionDeclaration' || node.type === 'VariableDeclaration' ||
+    node.type === 'ClassDeclaration' || node.type === 'ImportDeclaration' ||
+    node.type === 'ExportNamedDeclaration' || node.type === 'ExportDefaultDeclaration' ||
+    node.type === 'ExportAllDeclaration'
+}
+
 function declaration(statement: t.Statement | t.ModuleDeclaration): t.Declaration | null {
-  if (t.isExportNamedDeclaration(statement)) return statement.declaration ?? null
-  return t.isDeclaration(statement) ? statement : null
+  if (statement.type === 'ExportNamedDeclaration') return statement.declaration ?? null
+  return isDeclaration(statement) ? statement : null
 }
 
 export function analyzeSource(source: string): SourceAnalysis {
@@ -37,23 +45,23 @@ export function analyzeSource(source: string): SourceAnalysis {
 
   const candidates: Array<{ name: string; parameters: t.Function['params'] }> = []
   for (const statement of ast.program.body) {
-    if (t.isImportDeclaration(statement) || t.isExportAllDeclaration(statement) ||
-      t.isExportDefaultDeclaration(statement) ||
-      (t.isExportNamedDeclaration(statement) && (!statement.declaration || statement.source))) {
+    if (statement.type === 'ImportDeclaration' || statement.type === 'ExportAllDeclaration' ||
+      statement.type === 'ExportDefaultDeclaration' ||
+      (statement.type === 'ExportNamedDeclaration' && (!statement.declaration || statement.source))) {
       throw new Error('暂不支持模块导入或再导出；请粘贴独立可运行的 JavaScript。')
     }
     const item = declaration(statement)
-    if (t.isFunctionDeclaration(item) && item.id) {
+    if (item?.type === 'FunctionDeclaration' && item.id) {
       candidates.push({ name: item.id.name, parameters: item.params })
     }
-    if (t.isVariableDeclaration(item)) {
+    if (item?.type === 'VariableDeclaration') {
       for (const variable of item.declarations) {
-        if (!t.isIdentifier(variable.id)) continue
+        if (variable.id.type !== 'Identifier') continue
         if (variable.id.name === '__model') {
-          if (!t.isStringLiteral(variable.init)) throw new Error('__model 必须是静态字符串。')
+          if (variable.init?.type !== 'StringLiteral') throw new Error('__model 必须是静态字符串。')
           declare(variable.init.value)
         }
-        if (t.isFunctionExpression(variable.init) || t.isArrowFunctionExpression(variable.init)) {
+        if (variable.init?.type === 'FunctionExpression' || variable.init?.type === 'ArrowFunctionExpression') {
           candidates.push({ name: variable.id.name, parameters: variable.init.params })
         }
       }
@@ -62,12 +70,12 @@ export function analyzeSource(source: string): SourceAnalysis {
   const calledHelpers = new Set<string>()
   traverse(ast, {
     CallExpression(path) {
-      if (!path.getFunctionParent() || !t.isIdentifier(path.node.callee)) return
+      if (!path.getFunctionParent() || path.node.callee.type !== 'Identifier') return
       const functionPath = path.getFunctionParent()!
       const caller = functionPath.node
       const parent = functionPath.parentPath
-      const self = t.isFunctionDeclaration(caller) || t.isFunctionExpression(caller) ? caller.id?.name :
-        parent?.isVariableDeclarator() && t.isIdentifier(parent.node.id) ? parent.node.id.name : null
+      const self = caller.type === 'FunctionDeclaration' || caller.type === 'FunctionExpression' ? caller.id?.name :
+        parent?.isVariableDeclarator() && parent.node.id.type === 'Identifier' ? parent.node.id.name : null
       const calleeName = path.node.callee.name
       if (calleeName !== self && candidates.some((item) => item.name === calleeName)) {
         calledHelpers.add(calleeName)
@@ -78,20 +86,20 @@ export function analyzeSource(source: string): SourceAnalysis {
     candidates.find((item) => !calledHelpers.has(item.name)) ?? candidates[0]
   // A top-level call of a defined function means the pasted script already invokes it.
   const script = ast.program.body.some((statement) => {
-    if (t.isExpressionStatement(statement)) return !t.isStringLiteral(statement.expression)
+    if (statement.type === 'ExpressionStatement') return statement.expression.type !== 'StringLiteral'
     const topDeclaration = declaration(statement)
-    if (t.isVariableDeclaration(topDeclaration)) {
+    if (topDeclaration?.type === 'VariableDeclaration') {
       return topDeclaration.declarations.some((item) => {
         const init = item.init
-        const callName = t.isCallExpression(init) && t.isIdentifier(init.callee) ? init.callee.name : null
+        const callName = init?.type === 'CallExpression' && init.callee.type === 'Identifier' ? init.callee.name : null
         return callName !== null && candidates.some((candidate) => candidate.name === callName)
       })
     }
-    return !t.isDeclaration(statement) && !t.isExportNamedDeclaration(statement) && !t.isEmptyStatement(statement)
+    return !isDeclaration(statement) && statement.type !== 'EmptyStatement'
   }) || (!entry && ast.program.body.some((statement) => {
     const item = declaration(statement)
-    return t.isVariableDeclaration(item) && item.declarations.some((variable) =>
-      t.isIdentifier(variable.id) && variable.id.name !== '__model' && Boolean(variable.init))
+    return item?.type === 'VariableDeclaration' && item.declarations.some((variable) =>
+      variable.id.type === 'Identifier' && variable.id.name !== '__model' && Boolean(variable.init))
   }))
 
   const features = new Map<t.Node, {
@@ -112,38 +120,38 @@ export function analyzeSource(source: string): SourceAnalysis {
   traverse(ast, {
     CallExpression(path) {
       const callee = path.node.callee
-      if (!t.isMemberExpression(callee) || !t.isIdentifier(callee.property)) return
-      if (!t.isIdentifier(callee.object)) return
+      if (callee.type !== 'MemberExpression' || callee.property.type !== 'Identifier') return
+      if (callee.object.type !== 'Identifier') return
       if (callee.property.name === 'shift') featureFor(path).shift.add(callee.object.name)
       if (callee.property.name === 'push') featureFor(path).push.add(callee.object.name)
     },
     ForOfStatement(path) {
-      if (t.isMemberExpression(path.node.right)) featureFor(path).adjacency = true
+      if (path.node.right.type === 'MemberExpression') featureFor(path).adjacency = true
     },
     VariableDeclarator(path) {
-      if (t.isIdentifier(path.node.id) && path.node.init &&
-        (t.isArrayExpression(path.node.init) || t.isCallExpression(path.node.init))) {
+      if (path.node.id.type === 'Identifier' && path.node.init &&
+        (path.node.init.type === 'ArrayExpression' || path.node.init.type === 'CallExpression')) {
         featureFor(path).locals.add(path.node.id.name)
       }
     },
     Function(path) {
       const node = path.node
-      const name = t.isFunctionDeclaration(node) || t.isFunctionExpression(node) ? node.id?.name : null
-      if (!name || !['p', 'l', 'r'].every((param) => node.params.some((item) => t.isIdentifier(item, { name: param })))) return
+      const name = node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression' ? node.id?.name : null
+      if (!name || !['p', 'l', 'r'].every((param) => node.params.some((item) => item.type === 'Identifier' && item.name === param))) return
       path.traverse({ CallExpression(inner) {
-        if (t.isIdentifier(inner.node.callee, { name })) segmentShape = true
+        if (inner.node.callee.type === 'Identifier' && inner.node.callee.name === name) segmentShape = true
       } })
     },
     AssignmentExpression(path) {
       const left = path.node.left
-      if (!t.isMemberExpression(left)) return
-      const root = t.isMemberExpression(left.object) ? left.object.object : left.object
-      if (t.isIdentifier(root) && left.computed) featureFor(path).writes.add(root.name)
+      if (left.type !== 'MemberExpression') return
+      const root = left.object.type === 'MemberExpression' ? left.object.object : left.object
+      if (root.type === 'Identifier' && left.computed) featureFor(path).writes.add(root.name)
     },
     MemberExpression(path) {
       const node = path.node
-      if (!t.isIdentifier(node.object) || !node.computed) return
-      if (t.isBinaryExpression(node.property, { operator: '-' }) && t.isNumericLiteral(node.property.right)) {
+      if (node.object.type !== 'Identifier' || !node.computed) return
+      if (node.property.type === 'BinaryExpression' && node.property.operator === '-' && node.property.right.type === 'NumericLiteral') {
         featureFor(path).previous.add(node.object.name)
       }
     },
@@ -166,9 +174,9 @@ export function analyzeSource(source: string): SourceAnalysis {
   return {
     entry: script ? null : entry?.name ?? null,
     parameters: entry?.parameters.map((param) =>
-      t.isIdentifier(param) ? param.name : t.isAssignmentPattern(param) && t.isIdentifier(param.left) ? param.left.name : '',
+      param.type === 'Identifier' ? param.name : param.type === 'AssignmentPattern' && param.left.type === 'Identifier' ? param.left.name : '',
     ) ?? [],
-    requiredParameters: entry?.parameters.filter((param) => !t.isAssignmentPattern(param) && !t.isRestElement(param)).length ?? 0,
+    requiredParameters: entry?.parameters.filter((param) => param.type !== 'AssignmentPattern' && param.type !== 'RestElement').length ?? 0,
     script,
     declaredModel,
     structure,
