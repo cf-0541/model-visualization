@@ -1,9 +1,19 @@
+import { lazy, Suspense } from 'react'
 import { Box, BrainCircuit, Network, Rows3 } from 'lucide-react'
 import type { DetectedModel, VisualStep } from '../types'
-import { ArrayScene } from './ArrayScene'
-import { DpScene } from './DpScene'
-import { GraphScene } from './GraphScene'
-import { SegmentTreeScene } from './SegmentTreeScene'
+
+const ArrayScene = lazy(() =>
+  import('./ArrayScene').then(({ ArrayScene }) => ({ default: ArrayScene })),
+)
+const DpScene = lazy(() =>
+  import('./DpScene').then(({ DpScene }) => ({ default: DpScene })),
+)
+const GraphScene = lazy(() =>
+  import('./GraphScene').then(({ GraphScene }) => ({ default: GraphScene })),
+)
+const SegmentTreeScene = lazy(() =>
+  import('./SegmentTreeScene').then(({ SegmentTreeScene }) => ({ default: SegmentTreeScene })),
+)
 
 interface VisualizationStageProps {
   model: DetectedModel
@@ -64,15 +74,22 @@ export function VisualizationStage({ model, step, running, dpTarget }: Visualiza
             <p>轨迹已生成，请在上方“可视化模型”菜单手动选择结构，再查看动画。</p>
           </div>
         ) : step ? (
-          model === 'dp' ? (
-            <DpScene step={step} targetHint={dpTarget} />
-          ) : model === 'segment-tree' ? (
-            <SegmentTreeScene step={step} />
-          ) : model === 'graph' ? (
-            <GraphScene step={step} />
-          ) : (
-            <ArrayScene step={step} />
-          )
+          <Suspense fallback={
+            <div className="stage-loader" role="status">
+              <span className="loader-orbit"><i /><i /><i /></span>
+              <strong>正在加载可视化模型…</strong>
+            </div>
+          }>
+            {model === 'dp' ? (
+              <DpScene step={step} targetHint={dpTarget} />
+            ) : model === 'segment-tree' ? (
+              <SegmentTreeScene step={step} />
+            ) : model === 'graph' ? (
+              <GraphScene step={step} />
+            ) : (
+              <ArrayScene step={step} />
+            )}
+          </Suspense>
         ) : (
           <div className="stage-placeholder">
             <span><Box size={30} /></span>
