@@ -248,5 +248,5 @@ function solve() { return new Counter().isPositive(); }`, [], 'solve'],
   assert.throws(() => new Function('__trace', '"use strict"; ' + emptyLoop.code + '; return solve(0);')(trace), TraceLimitError)
   verifySyntaxMatrix(instrumentCode, analyzeSource, parseInput)
   await verifyDifferential(instrumentCode, analyzeSource, argumentsFor, parseInput, babelBundles['Worker runtime'])
-  console.log(`All ${examples.length} bundled examples and ${cases.length} additional snippets matched production event traces and result snapshots.`)
+  console.log(`All ${examples.length} bundled examples and ${cases.length} additional snippets matched the independent Babel reference event traces and result snapshots.`)
 })

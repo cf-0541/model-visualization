@@ -11,10 +11,10 @@ export async function withBundles(verify) {
   try {
     const babelBundles = {}
     for (const [name, entry] of [
-      ['Babel (full instrumentCode)', 'src/instrumentation/instrument.ts'],
-      ['Acorn pilot (experimental)', 'experiments/lightweight-ast/instrument.mjs'],
-      ['Babel sourceAnalysis', 'src/sourceAnalysis.ts'],
-      ['Babel parseInput', 'src/parseInput.ts'],
+      ['Babel (full instrumentCode)', 'experiments/lightweight-ast/babel/instrument.ts'],
+      ['Acorn (integrated instrumentCode)', 'experiments/lightweight-ast/instrument.mjs'],
+      ['Babel sourceAnalysis', 'experiments/lightweight-ast/babel/sourceAnalysis.ts'],
+      ['Babel parseInput', 'experiments/lightweight-ast/babel/parseInput.ts'],
       ['Worker runtime', 'src/runtime/runner.worker.ts'],
     ]) {
       const outDir = join(temp, name.replace(/[^a-zA-Z]/g, '-'))

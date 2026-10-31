@@ -8,8 +8,10 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
+import { createServer as createViteServer } from 'vite'
 import { instrumentLightweight } from './instrument.mjs'
 import { withBundles } from './measure.mjs'
+import { astBuildVariant } from './build-variants.mjs'
 
 const tests = [
   { label: 'sync mutation', source: 'function solve(a) { a.push(3); return a; }', args: [[1, 2]] },
@@ -24,6 +26,7 @@ const tests = [
   { label: 'dynamic import', source: 'async function solve() { return (await import("data:text/javascript,export default 7")).default; }', args: [] },
   { label: 'script failure', source: 'const answer = (() => { throw new Error("script failed"); })();', args: [], script: true },
   { label: 'unbounded timeout', source: 'function solve() { eval("while (true) {}"); }', args: [], timeout: true },
+  { label: 'shadow bypass probe', source: 'function solve() { return [typeof globalThis, typeof fetch, typeof self.fetch, typeof (0, eval)("globalThis"), typeof Function("return globalThis")().fetch]; }', args: [] },
   { label: 'missing entry', source: 'function solve() { return 1; }', args: [], entry: 'missing' },
 ]
 
@@ -69,7 +72,7 @@ async function runBrowser(workerBundle, payload) {
       response.end(html)
     }
   })
-  let browser, socket
+  let browser, socket, vite
   try {
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
     const chrome = browserPath()
@@ -122,9 +125,81 @@ async function runBrowser(workerBundle, payload) {
       delay(60000, undefined, { ref: false }).then(() => { throw new Error('Browser E2E timed out.') }),
     ])
     if (result.exceptionDetails) throw new Error(result.exceptionDetails.text + ': ' + result.exceptionDetails.exception?.description)
-    return result.result.value
+    const version = await cdp('Browser.getVersion')
+    // Exercise the actual app entrypoint/timeout, not just a similar harness timer.
+    vite = await createViteServer({ configFile: false, root: resolve(import.meta.dirname, '../..'),
+      define: { 'process.env': '{}' }, plugins: [astBuildVariant('baseline')],
+      cacheDir: join(profile, 'vite-baseline-cache'),
+      server: { host: '127.0.0.1', port: 0 } })
+    await vite.listen()
+    const viteUrl = vite.resolvedUrls.local[0]
+    await cdp('Page.navigate', { url: viteUrl })
+    // Cold Vite dependency optimization can exceed 10 s on Windows.
+    // Keep an explicit load deadline and the exact readiness assertion.
+    let loaded = false
+    for (let i = 0; i < 600; i++) {
+      const state = await cdp('Runtime.evaluate', { expression: 'document.readyState' })
+      if (state.result?.value === 'complete') { loaded = true; break }
+      await delay(100)
+    }
+    if (!loaded) { const state = await cdp('Runtime.evaluate', { expression: 'JSON.stringify({url: location.href, ready: document.readyState})' }); throw new Error('Vite app page did not load: ' + viteUrl + ' ' + JSON.stringify(state)) }
+    const app = await Promise.race([
+      cdp('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: `(async () => {
+        const { runCode } = await import('/src/runtime/runCode.ts');
+        let timeout;
+        try { await runCode('function solve() { eval("while (true) {}"); }', undefined, {timeoutMs: 350});
+          timeout = 'unexpected success';
+        } catch (error) { timeout = error.message; }
+        const recovered = await runCode('function solve() { return 7; }', undefined, {timeoutMs: 5000});
+        return { timeout, result: recovered.result };
+      })()` }),
+      delay(30000, undefined, { ref: false }).then(() => { throw new Error('App timeout/recovery check hung.') }),
+    ])
+    if (app.exceptionDetails) throw new Error(app.exceptionDetails.text + ': ' + app.exceptionDetails.exception?.description)
+    const appParityExpression = `(async () => {
+        const { runCode } = await import('/src/runtime/runCode.ts');
+        const cases = [
+          ['function solve(values) { let sum = 0; for (const value of values) sum += value; return sum; }', [1, 2]],
+          ['function solve(value) { const obj = { get x() { return value[0]; }, set x(n) { value[0] = n; } }; obj.x = obj.x + 1; return obj.x; }', [2]],
+          ['async function solve(value) { return (await Promise.resolve(value)) + 1; }', 3],
+        ];
+        return Promise.all(cases.map(async ([source, input]) => {
+          const run = await runCode(source, input, { timeoutMs: 5000 });
+          return { result: run.result, analysis: run.analysis,
+            events: run.events.map(event => event.type === 'done' ? { ...event, duration: 0 } : event) };
+        }));
+      })()`
+    const baselineApp = await Promise.race([
+      cdp('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: appParityExpression }),
+      delay(30000, undefined, { ref: false }).then(() => { throw new Error('Baseline app integration check hung.') }),
+    ])
+    if (baselineApp.exceptionDetails) throw new Error('Baseline app integration failed: ' + baselineApp.exceptionDetails.exception?.description)
+    // Repeat with the real, unaliased production application modules.
+    await vite.close()
+    vite = await createViteServer({ configFile: false, root: resolve(import.meta.dirname, '../..'),
+      define: { 'process.env': '{}' }, cacheDir: join(profile, 'vite-production-cache'),
+      server: { host: '127.0.0.1', port: 0 } })
+    await vite.listen()
+    await cdp('Page.navigate', { url: vite.resolvedUrls.local[0] })
+    let pilotReady = false
+    for (let i = 0; i < 600; i++) {
+      const state = await cdp('Runtime.evaluate', { expression: 'document.readyState' })
+      if (state.result?.value === 'complete') { pilotReady = true; break }
+      await delay(100)
+    }
+    if (!pilotReady) throw new Error('Pilot Vite app page did not load.')
+    const pilotApp = await Promise.race([
+      cdp('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: appParityExpression }),
+      delay(30000, undefined, { ref: false }).then(() => { throw new Error('Pilot app integration check hung.') }),
+    ])
+    if (pilotApp.exceptionDetails) throw new Error(pilotApp.exceptionDetails.text + ': ' + pilotApp.exceptionDetails.exception?.description)
+    assert.deepEqual(baselineApp.result.value.map(item => item.result), [3, 3, 4])
+    assert.deepEqual(pilotApp.result.value, baselineApp.result.value, 'App-level pilot analysis/events/results differ')
+    return { results: result.result.value, product: version.product, appResult: app.result.value,
+      pilotAppResults: pilotApp.result.value.length }
   } finally {
     socket?.close()
+    await vite?.close()
     browser?.kill()
     await new Promise(resolve => server.close(resolve))
     if (dirname(profile) !== resolve(tmpdir())) throw new Error(`Unexpected temporary profile: ${profile}`)
@@ -149,7 +224,7 @@ await withBundles(async bundles => {
       maxIterations: test.maxIterations ?? 10000,
     } }
   }))
-  const results = await runBrowser(workerBundle, payload)
+  const { results, product, appResult } = await runBrowser(workerBundle, payload)
   assert.equal(results.length, payload.length)
   const normalize = ({ duration, events, ...response }) => ({
     ...response, events: events.map(event => event.type === 'done' ? { ...event, duration: '<elapsed>' } : event),
@@ -163,8 +238,14 @@ await withBundles(async bundles => {
       continue
     }
     assert.deepEqual(normalize(pilot.response), normalize(babel.response), `${babel.label}: browser Worker mismatch`)
+    if (babel.label === 'shadow bypass probe') {
+      assert.deepEqual(babel.response.result, ['undefined', 'undefined', 'function', 'object', 'function'],
+        'Local shadowing must not be mistaken for a security sandbox')
+    }
     if (['event cap', 'iteration cap', 'async iteration cap'].includes(babel.label)) assert.match(babel.response.truncated, /上限/)
     if (['rejection', 'missing entry', 'script failure'].includes(babel.label)) assert.equal(babel.response.ok, false)
   }
-  console.log(`${tests.length} paired cases matched inside a real Chromium module Worker.`)
+  assert.match(appResult.timeout, /执行超过 350ms，已终止/)
+  assert.equal(appResult.result, 7, 'App did not recover after terminating the stuck Worker')
+  console.log(`${tests.length} paired cases matched inside real ${product} module Workers; app timeout/recovery and integrated Vite application parity passed.`)
 })

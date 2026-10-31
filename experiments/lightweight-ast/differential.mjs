@@ -81,7 +81,20 @@ const SPECIAL = [
   ['async iteration cap', `async function solve(values) {
     await Promise.resolve(); while (true) { values.push(1); }
   }`, [[]], null, false, 4000, 3],
-  ['script thrown exception', `const answer = (() => { throw new Error('script failed'); })();`, [], null, true],  ['script result', `function twice(n) { return n * 2; }
+  ['script thrown exception', `const answer = (() => { throw new Error('script failed'); })();`, [], null, true],
+  ['unicode bindings', `function solve(数值) { const 结果 = 数值 + 1; return 结果; }`, [2]],
+  ['object spread and computed key', `function solve(value) { const result = { ...value, ["next"]: value.x + 1 }; return result.next; }`, [{ x: 2 }]],
+  ['tagged template', 'function solve(value) { const tag = (parts, n) => parts[0] + n; return tag`x${value}`; }', [4]],
+  ['private class field', `function solve(value) { class Box { #n = value; get() { return this.#n; } } return new Box().get(); }`, [5]],
+  ['class static block', `function solve(value) { class Box { static { this.n = value; } } return Box.n; }`, [3]],
+  ['getter and setter', `function solve(value) { const obj = { get x() { return value[0]; }, set x(next) { value[0] = next; } }; obj.x = obj.x + 1; return obj.x; }`, [[2]]],
+  ['array destructuring default', `function solve(value) { const [first = 3, ...rest] = value; return first + rest.length; }`, [[undefined, 2, 4]]],
+  ['named regex group', `function solve(value) { return /(?<n>\\d+)/.exec(value)?.groups?.n; }`, ['item42']],
+  ['for await of', `async function solve(values) { const out = []; for await (const value of values) out.push(value + 1); return out; }`, [[2, 3]]],
+  ['yield delegation', `function solve() { function* items() { yield* [1, 2]; } return [...items()]; }`, []],
+  ['new target', `function solve() { function Box() { this.name = new.target?.name; } return new Box().name; }`, []],
+  ['conditional optional call', `function solve(value) { const fn = value ? (n) => n + 1 : null; return fn?.(2) ?? 0; }`, [true]],
+  ['script result', `function twice(n) { return n * 2; }
 const answer = twice(3);`, [], null, true],
   ['script expression', `const answer = [2, 4].map((value) => value + 1);
 answer;`, [], null, true],
@@ -139,6 +152,41 @@ export async function verifyDifferential(instrumentCode, analyzeSource, argument
   assert.equal(seenConditions.size, CONDITIONS.length, "Generator missed a condition")
   assert.equal(seenBodies.size, BODIES.length, "Generator missed a body")
   assert.equal(seenLengths.size, 5, "Generator missed an input size")
+  // Cross product of statement/loop forms and short arrays. This probes AST
+  // composition, not merely new spellings of conditions in the seeded loop.
+  const loopForms = [
+    'for (let i = 0; i < values.length; i++) visit(values[i], i);',
+    'let i = 0; while (i < values.length) { visit(values[i], i); i++; }',
+    'let i = 0; if (values.length) do { visit(values[i], i); i++; } while (i < values.length);',
+    'let i = 0; for (const item of values) visit(item, i++);',
+    'for (const key in values) visit(values[key], Number(key));',
+  ]
+  const visitForms = [
+    'if (item > 0) output.push(item + i); else output.push(i - item);',
+    'switch (item) { case 0: output.push(i); break; case 2: output.push(item); break; default: output.push(-item); }',
+    'try { if (item < 0) throw new Error("negative"); output.push(item); } catch (error) { output.push(error.message); }',
+    'const op = { step(n) { return n > 0 ? n : i; } }; output.push(op.step(item));',
+    'const op = (n) => n >= 0 ? n : -n; output.push(op(item));',
+  ]
+  const lengths = [0, 1, 3]
+  for (const [loopIndex, loop] of loopForms.entries()) {
+    for (const [visitIndex, visit] of visitForms.entries()) {
+      for (const length of lengths) {
+        const values = [-1, 0, 2].slice(0, length)
+        cases.push({
+          label: `composition loop ${loopIndex} visit ${visitIndex} length ${length}`,
+          source: `function solve(values) {
+  const output = [];
+  const visit = (item, i) => { ${visit} };
+  ${loop}
+  return output;
+}`,
+          args: [values],
+        })
+      }
+    }
+  }
+  assert.equal(loopForms.length * visitForms.length * lengths.length, 75)
   for (const [index, condition] of EDGE_CONDITIONS.entries()) {
     cases.push({
       label: `edge expression ${index}: ${condition}`,

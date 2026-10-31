@@ -43,6 +43,20 @@ function opaqueKind(value: object): string | null {
   }
 }
 
+// Proxies break native internal-slot methods (Map, Date, typed arrays, etc.).
+// Accessors can mutate program state during a snapshot, so leave such objects
+// unproxied too. This is a conservative observation boundary, not a sandbox.
+function canProxy(value: object): boolean {
+  if (opaqueKind(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  if (Array.isArray(value) ? prototype !== Array.prototype :
+    prototype !== Object.prototype && prototype !== null) return false
+  return Reflect.ownKeys(value).every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    return descriptor && 'value' in descriptor
+  })
+}
+
 function displayKey(key: PropertyKey): string | number | null {
   if (typeof key === 'symbol') return null
   const text = String(key)
@@ -94,19 +108,25 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
     const raw = proxyMeta.get(input)?.raw ?? input
     const kind = opaqueKind(raw)
     if (kind) return `[${kind}]`
+    const prototype = Object.getPrototypeOf(raw)
+    if (Array.isArray(raw) ? prototype !== Array.prototype :
+      prototype !== Object.prototype && prototype !== null) return '[Object]'
     if (depth >= MAX_SNAPSHOT_DEPTH) return '[…]'
     if (seen.has(raw)) return '[Circular]'
     seen.add(raw)
 
     if (Array.isArray(raw)) {
-      const values = raw
-        .slice(0, MAX_COLLECTION_SIZE)
-        .map((value) => snapshot(value, depth + 1, seen, budget))
+      const values: unknown[] = new Array(Math.min(raw.length, MAX_COLLECTION_SIZE))
+      for (let index = 0; index < values.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(raw, index)
+        if (descriptor) values[index] = 'value' in descriptor
+          ? snapshot(descriptor.value, depth + 1, seen, budget) : '[Accessor]'
+      }
       if (raw.length > MAX_COLLECTION_SIZE) values.push(`… +${raw.length - MAX_COLLECTION_SIZE}`)
       return values
     }
 
-    const output: Record<string, unknown> = {}
+    const output: Record<string, unknown> = Object.create(null) as Record<string, unknown>
     let count = 0
     for (const key in raw) {
       if (!Object.prototype.hasOwnProperty.call(raw, key)) continue
@@ -114,7 +134,9 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
         output['…'] = 'truncated'
         break
       }
-      output[key] = snapshot((raw as Record<string, unknown>)[key], depth + 1, seen, budget)
+      const descriptor = Object.getOwnPropertyDescriptor(raw, key)
+      output[key] = descriptor && 'value' in descriptor
+        ? snapshot(descriptor.value, depth + 1, seen, budget) : '[Accessor]'
     }
     return output
   }
@@ -130,7 +152,7 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
 
   const proxyFor = <T extends object>(rawValue: T, target: string, path: TracePath): T => {
     const unwrapped = proxyMeta.get(rawValue)?.raw ?? rawValue
-    if (opaqueKind(unwrapped)) return unwrapped as T
+    if (!canProxy(unwrapped)) return unwrapped as T
     const cacheKey = `${target}:${path.map(String).join('.')}`
     let cache = proxyCache.get(unwrapped)
     if (!cache) {
@@ -181,7 +203,8 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
       set(raw, key, value, receiver) {
         const part = displayKey(key)
         if (part !== null) ensureCapacity()
-        const before = Reflect.get(raw, key, receiver)
+        const descriptor = Object.getOwnPropertyDescriptor(raw, key)
+        const before = descriptor && 'value' in descriptor ? descriptor.value : undefined
         const unwrappedValue = isObject(value) ? proxyMeta.get(value)?.raw ?? value : value
         const ok = Reflect.set(raw, key, unwrappedValue, receiver)
 
@@ -224,7 +247,7 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
       }
 
       const raw = proxyMeta.get(value)?.raw ?? value
-      if (opaqueKind(raw)) return raw as typeof value
+      if (!canProxy(raw)) return raw as typeof value
       let names = trackedNames.get(raw)
       if (!names) {
         names = new Set()

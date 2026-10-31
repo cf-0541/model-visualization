@@ -8,6 +8,25 @@ importers:
 
   .:
     dependencies:
+      acorn:
+        specifier: ^8.19.0
+        version: 8.19.0
+      acorn-walk:
+        specifier: ^8.3.5
+        version: 8.3.5
+      astring:
+        specifier: ^1.9.0
+        version: 1.9.0
+      lucide-react:
+        specifier: ^0.468.0
+        version: 0.468.0(react@19.3.1)
+      react:
+        specifier: ^19.1.1
+        version: 19.3.1
+      react-dom:
+        specifier: ^19.1.1
+        version: 19.3.1(react@19.3.1)
+    devDependencies:
       '@babel/generator':
         specifier: ^7.28.5
         version: 7.29.8
@@ -20,16 +39,6 @@ importers:
       '@babel/types':
         specifier: ^7.28.5
         version: 7.29.8
-      lucide-react:
-        specifier: ^0.468.0
-        version: 0.468.0(react@19.3.1)
-      react:
-        specifier: ^19.1.1
-        version: 19.3.1
-      react-dom:
-        specifier: ^19.1.1
-        version: 19.3.1(react@19.3.1)
-    devDependencies:
       '@types/babel__generator':
         specifier: ^7.27.0
         version: 7.27.0
@@ -48,15 +57,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^5.0.4
         version: 5.2.0(vite@7.3.7(@types/node@26.6.5))
-      acorn:
-        specifier: ^8.19.0
-        version: 8.19.0
-      acorn-walk:
-        specifier: ^8.3.5
-        version: 8.3.5
-      astring:
-        specifier: ^1.9.0
-        version: 1.9.0
+      playwright:
+        specifier: ^1.64.1
+        version: 1.64.1
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -703,6 +706,16 @@ packages:
   picomatch@4.0.7:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
     engines: {node: '>=12'}
+
+  playwright-core@1.64.1:
+    resolution: {integrity: sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  playwright@1.64.1:
+    resolution: {integrity: sha512-HCrVhHr5QQuwYoswEUGTb7gGp522yflbv/ST8nF4sFWGuLjQCt17Q/EubpGGSNKYn1tsTCPZxqHhHCfVURu7UA==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   postcss@8.5.30:
     resolution: {integrity: sha512-zkd+e9S1AQHhmaBKye9zlFHWjOwVgqXl1q3ECYy8561K7qxR2cREf/STLskulBFd78k6AOFeA+ff1TtEzk9bAA==}
@@ -1390,6 +1403,12 @@ snapshots:
   picocolors@1.1.1: {}
 
   picomatch@4.0.7: {}
+
+  playwright-core@1.64.1: {}
+
+  playwright@1.64.1:
+    dependencies:
+      playwright-core: 1.64.1
 
   postcss@8.5.30:
     dependencies:

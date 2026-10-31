@@ -39,6 +39,55 @@ describe('native iterator and Promise tracking', () => {
   })
 })
 
+describe('observation must not change ordinary object behavior', () => {
+  it('does not invoke an accessor just to take a snapshot', () => {
+    let reads = 0
+    const value = { get item() { reads += 1; return 4 } }
+    const trace = createTraceRuntime()
+    const tracked = trace.track('value', value)
+    expect(reads).toBe(0)
+    trace.complete(tracked, 0)
+    expect(reads).toBe(0)
+    expect(tracked.item).toBe(4)
+    expect(reads).toBe(1)
+  })
+
+  it('preserves user-code results when an observed value contains a getter', () => {
+    const { result } = execute('function solve() { let reads = 0; const value = { get item() { reads++; return 4; } }; return reads; }', undefined)
+    expect(result).toBe(0)
+  })
+
+  it('preserves sparse array snapshots without reading indexed getters', () => {
+    let reads = 0
+    const values = [, 2] as number[]
+    Object.defineProperty(values, 0, { enumerable: true, get() { reads++; return 1 } })
+    const trace = createTraceRuntime()
+    trace.complete(values, 0)
+    expect(reads).toBe(0)
+    const done = trace.getEvents().at(-1)
+    expect(done).toMatchObject({ type: 'done', result: ['[Accessor]', 2] })
+  })
+
+  it('snapshots an own __proto__ data key without changing the snapshot prototype', () => {
+    const value = Object.create(null) as Record<string, unknown>
+    value.__proto__ = { polluted: true }
+    const trace = createTraceRuntime()
+    trace.complete(value, 0)
+    const done = trace.getEvents().at(-1)
+    if (!done || done.type !== 'done') throw new Error('Missing done event')
+    expect(Object.getPrototypeOf(done.result)).toBeNull()
+    expect(Object.hasOwn(done.result as object, '__proto__')).toBe(true)
+  })
+
+  it('does not proxy native internal-slot objects', () => {
+    const trace = createTraceRuntime()
+    const map = trace.track('map', new Map([['x', 2]]))
+    const date = trace.track('date', new Date('2020-01-01T00:00:00Z'))
+    expect(map.get('x')).toBe(2)
+    expect(date.getUTCFullYear()).toBe(2020)
+  })
+})
+
 describe('AST instrumentation', () => {
   it('captures line, read, write, call and return events for DP code', () => {
     const example = examples.find((item) => item.id === 'house-robber')!

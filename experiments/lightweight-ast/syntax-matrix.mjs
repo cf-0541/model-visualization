@@ -21,6 +21,14 @@ const accepted = [
   ['nullish assignment', 'function solve(x) { return x ??= 2; }'],
   ['generator', 'function* solve() { yield 1; }'],
   ['no entry (instrumenter only)', 'const value = 1;'],
+  ['unicode identifier', 'function solve(数值) { return 数值 + 1; }'],
+  ['object spread/computed key', 'function solve(x) { return { ...x, ["y"]: 2 }; }'],
+  ['tagged template', 'function solve(x) { const f = (parts, v) => parts[0] + v; return f`x${x}`; }'],
+  ['new.target', 'function solve() { function Box() { return new.target?.name; } return new Box(); }'],
+  ['yield delegation', 'function* solve() { yield* [1, 2]; }'],
+  ['for await of', 'async function solve(values) { for await (const value of values) { if (value) return value; } }'],
+  ['regular expression named group', 'function solve(x) { return /(?<n>\\d+)/.exec(x)?.groups?.n; }'],
+  ['hashbang', '#!/usr/bin/env node\nfunction solve() { return 1; }'],
 ]
 const rejected = [
   ['malformed binding', 'function solve() { const /x/ = 1; }'],
@@ -33,6 +41,10 @@ const rejected = [
   ['module import', 'import x from "x"; function solve() { return x; }'],
   ['standalone export', 'export { solve }; function solve() { return 1; }'],
   ['default export', 'export default function solve() { return 1; }'],
+  ['duplicate lexical binding', 'function solve() { const x = 1; const x = 2; }'],
+  ['return outside function', 'return 1; function solve() {}'],
+  ['optional chain assignment', 'function solve(x) { x?.a = 2; }'],
+  ['with in module', 'function solve(x) { with (x) return 1; }'],
 ]
 const inputAccepted = [
   '0', '-0', '1e3', 'null', 'undefined', '[1, 2, {a: 3}]',
@@ -76,6 +88,8 @@ export function verifySyntaxMatrix(instrumentCode, analyzeSource, parseInput) {
     assert.equal(original.ok, false, `${label}: source analysis unexpectedly accepted`)
     assert.equal(pilot.ok, false, `${label}: pilot source analysis unexpectedly accepted`)
     assert.equal(pilot.name, original.name, `${label}: source analysis error category differs`)
+    assert.ok(pilot.message, `${label}: missing source analysis diagnostic`)
+    if (label !== 'invalid syntax') assert.equal(pilot.message, original.message, `${label}: application diagnostic differs`)
   }
   for (const [text, expected] of [...inputAccepted.map(text => [text, true]), ...inputRejected.map(text => [text, false])]) {
     const original = outcome(() => parseInput(text))
