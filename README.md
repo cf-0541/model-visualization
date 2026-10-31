@@ -13,6 +13,10 @@
 - 内置打家劫舍、二维网格路径、冒泡排序、线段树、BFS 双参数和 LeetCode 两数之和模板。
 - 一键复制分享链接：将当前代码、输入和模型选择编码到 URL hash；打开链接只载入内容，**不会自动运行**。
 
+## v0.1.3 更新
+
+本次更新接入轻量 AST、四类场景按需加载，修复访问器与原生对象的轨迹观察问题，并加入 Chromium / Firefox / WebKit 正式产物验证及构建体积报告。全部 JS（含 Worker）相较同条件冻结 Babel 基线减少约 54.1% gzip；这不是首屏传输量的降幅。完整公告、测量口径与限制见 [更新日志](CHANGELOG.md)。
+
 ## 运行
 
 需要 Node.js 与 pnpm，在项目根目录执行：
@@ -22,7 +26,7 @@ pnpm install
 pnpm dev
 ```
 
-打开 Vite 显示的本地地址，点击“运行并生成动画”开始；初次打开仅载入示例，不自动执行，Acorn / Astring 解析与插桩代码在首次运行时按需加载。当前工作区已接入轻量 AST；Babel 仅保留为开发期差分测试基线，不进入应用运行包。验证：
+打开 Vite 显示的本地地址，点击“运行并生成动画”开始；初次打开仅载入示例，不自动执行，Acorn / Astring 解析与插桩代码在首次运行时按需加载。v0.1.3 已接入轻量 AST；Babel 仅保留为开发期差分测试基线，不进入应用运行包。验证：
 
 ```powershell
 pnpm test
@@ -93,4 +97,4 @@ Worker 设置 2.5 秒超时、4,000 条事件和 10,000 次循环迭代上限；
 
 ## 公开构建记录
 
-推送到 `main` 或提交 PR 时，GitHub Actions 会执行测试与生产构建，并将 `dist` 保存为该次运行的 workflow artifact。发布新 Release 时，同一流程会把 `dist` 压缩包附到 Release；对于已发布的版本，可在 Actions 中手动运行该流程，输入已有的 Tag（如 `v0.1.2`）补齐附件。Release 构建会检出对应 Tag 并校验 `package.json` 版本，不把 `dist` 提交进 Git 历史。
+推送到 `main` 或提交 PR 时，GitHub Actions 会执行测试与生产构建，并将 `dist` 保存为该次运行的 workflow artifact。发布新 Release 时，同一流程会把 `dist` 压缩包附到 Release；对于已发布的版本，可在 Actions 中手动运行该流程，输入已有的 Tag（如 `v0.1.3`）补齐附件。Release 构建会检出对应 Tag 并校验 `package.json` 版本，不把 `dist` 提交进 Git 历史。
