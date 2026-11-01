@@ -146,6 +146,17 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
   }
 
   const emit = (event: RuntimeEventInput): void => {
+    const previous = events[events.length - 1]
+    // Only adjacent reads of the same address on the same line are redundant.
+    // Keep the latest observation and its seq, without crossing any other event.
+    // Check before capacity: replacing a read must also work at the event limit.
+    if (event.type === 'read' && previous?.type === 'read' &&
+      previous.line === event.line && previous.target === event.target &&
+      previous.path.length === event.path.length &&
+      previous.path.every((part, index) => part === event.path[index])) {
+      previous.value = event.value
+      return
+    }
     ensureCapacity()
     events.push({ ...event, seq: events.length } as RuntimeEvent)
   }
@@ -190,7 +201,6 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
         const nextPath = [...path, part]
         if (isObject(value)) return proxyFor(value, target, nextPath)
 
-        ensureCapacity()
         emit({
           type: 'read',
           line: currentLine,
