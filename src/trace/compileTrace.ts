@@ -1,6 +1,8 @@
 import { MAX_COLLECTION_SIZE } from '../runtime/traceRuntime'
 import type {
+  ArrayPatch,
   CallFrame,
+  WriteEvent,
   RuntimeEvent,
   TracePath,
   TracePointer,
@@ -37,6 +39,26 @@ function setAtPath(root: unknown, path: TracePath, value: unknown): unknown {
   }
   cursor[path[path.length - 1]] = cloneValue(value)
   return root
+}
+
+function atPath(root: unknown, path: TracePath): unknown {
+  if (path.some((part) => typeof part === 'number' && part >= MAX_COLLECTION_SIZE)) return undefined
+  let value = root
+  for (const part of path) {
+    if (value === null || typeof value !== 'object') return undefined
+    value = (value as Record<string | number, unknown>)[part]
+  }
+  return value
+}
+
+function applyArrayPatch(array: unknown[], patch: ArrayPatch, side: 'before' | 'after'): void {
+  array.length = side === 'after' ? patch.afterLength : patch.beforeLength
+  for (const change of patch.changes) {
+    if (change.index >= array.length) continue
+    const present = side === 'after' ? change.afterPresent : change.beforePresent
+    if (present) array[change.index] = cloneValue(change[side])
+    else delete array[change.index]
+  }
 }
 
 function formatValue(value: unknown): string {
@@ -81,7 +103,9 @@ function describe(event: RuntimeEvent): { title: string; description: string } {
     case 'write':
       return {
         title: `更新 ${formatPath(event.target, event.path)}`,
-        description: `${formatValue(event.before)} → ${formatValue(event.after)}，状态已经写回。`,
+        description: event.arrayPatch
+          ? `更新 ${event.arrayPatch.changes.length} 个可视位置，数组状态已经原子写回。`
+          : `${formatValue(event.before)} → ${formatValue(event.after)}，状态已经写回。`,
       }
     case 'branch':
       return {
@@ -266,16 +290,34 @@ function createState() {
   let pendingReads: TracePointer[] = []
   let activeReads: TracePointer[] = []
   let activeWrite: (TracePointer & { before: unknown }) | null = null
+  let activeArrayWrite: WriteEvent | null = null
   let branch: { expression: string; result: boolean } | null = null
   let result: unknown = undefined
+
+  function arrayWriteView(): (TracePointer & { before: unknown }) | null {
+    if (!activeArrayWrite?.arrayPatch) return null
+    const { target, path, arrayPatch } = activeArrayWrite
+    const after = atPath(tracked[target], path)
+    if (!Array.isArray(after)) return null
+    const before = cloneValue(after)
+    applyArrayPatch(before, arrayPatch, 'before')
+    return { target, path: [...path], before, value: after }
+  }
 
   function apply(event: RuntimeEvent) {
     if (event.type === 'line') {
       activeWrite = null
+      activeArrayWrite = null
       branch = null
     }
 
     if (event.type === 'track') {
+      if (activeArrayWrite?.target === event.target) {
+        // Reusing a target name must not reinterpret a previous lazy write
+        // against the replacement object.
+        activeWrite = cloneValue(arrayWriteView())
+        activeArrayWrite = null
+      }
       tracked[event.target] = cloneValue(event.value)
     }
 
@@ -292,17 +334,30 @@ function createState() {
       ].slice(-8)
       activeReads = [...pendingReads]
       activeWrite = null
+      activeArrayWrite = null
     }
 
     if (event.type === 'write') {
       if (!(event.target in tracked)) tracked[event.target] = []
-      tracked[event.target] = setAtPath(tracked[event.target], event.path, event.after)
       activeReads = [...pendingReads]
-      activeWrite = {
-        target: event.target,
-        path: [...event.path],
-        value: cloneValue(event.after),
-        before: cloneValue(event.before),
+      activeWrite = null
+      activeArrayWrite = null
+      if (event.arrayPatch) {
+        const array = atPath(tracked[event.target], event.path)
+        if (Array.isArray(array)) {
+          // Apply deltas in place while seeking; no full before/after clones for
+          // skipped events. Only frame() materializes a selected write's views.
+          applyArrayPatch(array, event.arrayPatch, 'after')
+          activeArrayWrite = event
+        }
+      } else {
+        tracked[event.target] = setAtPath(tracked[event.target], event.path, event.after)
+        activeWrite = {
+          target: event.target,
+          path: [...event.path],
+          value: cloneValue(event.after),
+          before: cloneValue(event.before),
+        }
       }
       // Keep a short dependency tail so adjacent swap writes still read naturally.
       pendingReads = pendingReads.slice(-3)
@@ -331,10 +386,11 @@ function createState() {
   }
 
   function frame(event: RuntimeEvent, index: number, kind: FrameKind): VisualStep {
+    const write = activeArrayWrite ? arrayWriteView() : activeWrite
     const snapshot: VisualSnapshot = {
       tracked: cloneValue(tracked),
       reads: cloneValue(activeReads),
-      write: cloneValue(activeWrite),
+      write: cloneValue(write),
       callStack: cloneValue(callStack.slice(-MAX_VISIBLE_CALL_FRAMES)),
       branch: cloneValue(branch),
       result: cloneValue(result),

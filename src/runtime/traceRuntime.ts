@@ -1,4 +1,5 @@
 import type {
+  ArrayPatch,
   RuntimeEvent,
   TracePath,
   TraceRuntime,
@@ -8,6 +9,7 @@ interface ProxyMeta {
   target: string
   path: TracePath
   raw: object
+  arrayBaseline: { view: unknown[] | null; revision: number }
 }
 
 interface RuntimeCall {
@@ -86,6 +88,7 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
   let currentLine = 1
   let nextCallId = 1
   let iterations = 0
+  let arrayRevision = 0
 
   const snapshot = (
     input: unknown,
@@ -141,6 +144,44 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
     return output
   }
 
+  // Capture only bounded primitive slots. Object/accessor elements need the
+  // existing deep snapshot fallback: a native callback may mutate them in place.
+  const primitiveArrayView = (raw: unknown[]): unknown[] | null => {
+    const view = new Array(Math.min(raw.length, MAX_COLLECTION_SIZE))
+    for (let index = 0; index < view.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(raw, index)
+      if (!descriptor) continue
+      if (!('value' in descriptor) || isObject(descriptor.value) || typeof descriptor.value === 'function') return null
+      view[index] = descriptor.value
+    }
+    if (raw.length > MAX_COLLECTION_SIZE) view.push(`… +${raw.length - MAX_COLLECTION_SIZE}`)
+    return view
+  }
+
+  const sameArrayView = (left: unknown[] | null, right: unknown[]): boolean => {
+    if (left === null || left.length !== right.length) return false
+    for (let index = 0; index < right.length; index += 1) {
+      if (Object.hasOwn(left, index) !== Object.hasOwn(right, index) ||
+        !Object.is(left[index], right[index])) return false
+    }
+    return true
+  }
+
+  const arrayPatch = (before: unknown[], after: unknown[]): ArrayPatch | null => {
+    const changes: ArrayPatch['changes'] = []
+    for (let index = 0; index < Math.max(before.length, after.length); index += 1) {
+      const beforePresent = Object.hasOwn(before, index)
+      const afterPresent = Object.hasOwn(after, index)
+      if (beforePresent === afterPresent && Object.is(before[index], after[index])) continue
+      // Stop early on dense changes: full snapshots are cheaper to encode.
+      if ((changes.length + 1) * 16 > before.length + after.length) return null
+      changes.push({ index, beforePresent, afterPresent,
+        before: beforePresent ? snapshot(before[index]) : undefined,
+        after: afterPresent ? snapshot(after[index]) : undefined })
+    }
+    return { beforeLength: before.length, afterLength: after.length, changes }
+  }
+
   const ensureCapacity = (): void => {
     if (events.length >= maxEvents) throw new TraceLimitError(maxEvents)
   }
@@ -159,6 +200,8 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
     }
     ensureCapacity()
     events.push({ ...event, seq: events.length } as RuntimeEvent)
+    // A full replacement can invalidate a cached nested array's visual base.
+    if (event.type === 'track' || (event.type === 'write' && !event.arrayPatch)) arrayRevision += 1
   }
 
   const proxyFor = <T extends object>(rawValue: T, target: string, path: TracePath): T => {
@@ -173,6 +216,13 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
     const cached = cache.get(cacheKey)
     if (cached) return cached as T
 
+    // A top-level array has a matching initial track snapshot. A nested array
+    // may have changed via an unproxied alias since track: establish its first
+    // baseline with the full fallback rather than assuming its initial state.
+    const arrayBaseline = {
+      view: Array.isArray(unwrapped) && path.length === 0 ? primitiveArrayView(unwrapped) : null,
+      revision: arrayRevision,
+    }
     const proxy = new Proxy(unwrapped, {
       get(raw, key, receiver) {
         const value = Reflect.get(raw, key, receiver)
@@ -185,13 +235,29 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
           return function (this: unknown, ...args: unknown[]) {
             if (this !== receiver) return Reflect.apply(value, this, args)
             ensureCapacity()
-            const before = snapshot(raw)
+            const beforeView = primitiveArrayView(raw)
+            const before = beforeView === null ? snapshot(raw) : undefined
             const unwrappedArgs = args.map((arg) => isObject(arg) ? proxyMeta.get(arg)?.raw ?? arg : arg)
             let result: unknown
             try {
               result = Reflect.apply(value, raw, unwrappedArgs)
             } finally {
-              emit({ type: 'write', line: currentLine, target, path: [...path], before, after: snapshot(raw) })
+              const afterView = beforeView === null ? null : primitiveArrayView(raw)
+              const patch = beforeView !== null && afterView !== null && beforeView.length >= 16 &&
+                arrayBaseline.revision === arrayRevision && sameArrayView(arrayBaseline.view, beforeView)
+                ? arrayPatch(beforeView, afterView) : null
+              // Dense rewrites and tiny arrays cost less in the original format.
+              // A delta must save substantially more slots than its field overhead.
+              if (patch) {
+                emit({ type: 'write', line: currentLine, target, path: [...path],
+                  arrayPatch: patch })
+              } else {
+                emit({ type: 'write', line: currentLine, target, path: [...path],
+                  before: beforeView === null ? before : beforeView.map((item) => snapshot(item)),
+                  after: afterView === null ? snapshot(raw) : afterView.map((item) => snapshot(item)) })
+              }
+              arrayBaseline.view = afterView
+              arrayBaseline.revision = arrayRevision
             }
             return result === raw ? receiver : result
           }
@@ -219,6 +285,9 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
         const ok = Reflect.set(raw, key, unwrappedValue, receiver)
 
         if (ok && part !== null) {
+          // A scalar write may also change length or replace an object-valued
+          // slot. Re-establish a full baseline before the next array delta.
+          arrayBaseline.view = null
           emit({
             type: 'write',
             line: currentLine,
@@ -232,7 +301,7 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
       },
     })
 
-    proxyMeta.set(proxy, { target, path, raw: unwrapped })
+    proxyMeta.set(proxy, { target, path, raw: unwrapped, arrayBaseline })
     cache.set(cacheKey, proxy)
     return proxy as T
   }
@@ -276,6 +345,7 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
           target: name,
           value: snapshot(raw),
         })
+        proxyMeta.get(proxy)!.arrayBaseline.revision = arrayRevision
       }
       return proxy as typeof value
     },

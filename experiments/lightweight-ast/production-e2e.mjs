@@ -11,6 +11,7 @@ import { chromium, firefox, webkit } from 'playwright'
 
 const root = resolve(import.meta.dirname, '../..')
 const cases = [
+  { label: 'sparse array deltas', source: 'function solve() { const a = Array(1000).fill(7); a.fill(9, 5, 6); a.push(8); return a[5] + a.length; }', input: '', expected: 1010 },
   { label: 'array mutation', source: 'function solve(a) { a.push(3); return a; }', input: '[1, 2]', expected: [1, 2, 3] },
   { label: 'literal-only input', source: 'function solve(o) { return o.value[0] + 1; }', input: '{value: [2,],}', expected: 3 },
   { label: 'accessors', source: 'function solve(a) { const obj = { get x() { return a[0]; }, set x(n) { a[0] = n; } }; obj.x = obj.x + 1; return obj.x; }', input: '[2]', expected: 3 },
@@ -70,9 +71,30 @@ try {
             await page.waitForFunction(n => window.__workerRecords.length > n, count, { timeout: 15000 })
             const response = await page.evaluate(n => window.__workerRecords[n], count)
             assert.equal(response.ok, true, `${engine}/${variant}/${test.label}: ${response.error}`)
+            if (test.label === 'sparse array deltas') {
+              const deltas = response.events.filter(event => event.type === 'write' && event.arrayPatch)
+              assert.equal(deltas.length, 2, `${engine}/${variant}: built Worker must emit compact deltas`)
+              assert.equal(deltas[0].arrayPatch.changes[0].index, 5)
+              assert.equal(deltas[0].arrayPatch.changes[0].after, 9)
+            }
             assert.deepEqual(response.result, test.expected, `${engine}/${variant}/${test.label}`)
             await page.waitForFunction(() => !document.querySelector('.run-button')?.disabled &&
               document.querySelector('.top-status')?.textContent?.includes('READY'))
+            if (test.label === 'sparse array deltas') {
+              const pause = page.getByRole('button', { name: '暂停', exact: true })
+              if (await pause.isVisible()) await pause.click()
+              await page.getByRole('button', { name: '全程事件', exact: true }).click()
+              const timeline = page.getByRole('slider', { name: '执行时间轴' })
+              await timeline.press('End')
+              await page.waitForFunction(() => document.querySelectorAll('.array-value')[5]?.textContent === '9')
+              await timeline.press('Home')
+              const initialArray = response.events.findIndex(event => event.type === 'track' && event.target === 'a')
+              assert.ok(initialArray >= 0)
+              for (let index = 0; index < initialArray; index++) await timeline.press('ArrowRight')
+              await page.waitForFunction(() => document.querySelectorAll('.array-value')[5]?.textContent === '7')
+              await timeline.press('End')
+              await page.waitForFunction(() => document.querySelectorAll('.array-value')[5]?.textContent === '9')
+            }
             results[variant].push({ worker: normalize(response), notice: await page.locator('.model-notice').textContent() })
           }
           // Rejected source/input must fail before starting a Worker, without evaluating input.

@@ -47,13 +47,27 @@ export interface ReadEvent extends TraceBase {
   value: unknown
 }
 
-export interface WriteEvent extends TraceBase {
+export interface ArrayPatch {
+  // Lengths of the bounded visual arrays, including any truncation marker.
+  beforeLength: number
+  afterLength: number
+  changes: Array<{
+    index: number
+    beforePresent: boolean
+    afterPresent: boolean
+    before: unknown
+    after: unknown
+  }>
+}
+
+export type WriteEvent = TraceBase & {
   type: 'write'
   target: string
   path: TracePath
-  before: unknown
-  after: unknown
-}
+} & (
+  | { before: unknown; after: unknown; arrayPatch?: never }
+  | { arrayPatch: ArrayPatch; before?: never; after?: never }
+)
 
 export interface BranchEvent extends TraceBase {
   type: 'branch'
