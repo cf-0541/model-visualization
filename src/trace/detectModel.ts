@@ -26,8 +26,18 @@ export function decideModel(
   return { model: 'unknown', source: 'fallback', reason: '没有足够的结构特征' }
 }
 
-// Keep the simple API for external users of the trace compiler.
-export function detectModel(events: RuntimeEvent[], preference: ModelPreference = 'auto'): DetectedModel {
-  const empty: SourceAnalysis = { entry: null, parameters: [], requiredParameters: 0, script: false, declaredModel: null, structure: null, reason: '' }
-  return decideModel(events, empty, preference).model
+/**
+ * Model-only compatibility API. Pass source analysis as the third argument to
+ * include declarations and structure; omitting it preserves trace-only detection.
+ * Use decideModel when the decision source and reason are also needed.
+ */
+export function detectModel(
+  events: RuntimeEvent[],
+  preference: ModelPreference = 'auto',
+  analysis?: SourceAnalysis,
+): DetectedModel {
+  return decideModel(events, analysis ?? {
+    entry: null, parameters: [], requiredParameters: 0, script: false,
+    declaredModel: null, structure: null, reason: '',
+  }, preference).model
 }
