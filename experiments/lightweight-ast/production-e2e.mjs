@@ -11,6 +11,7 @@ import { chromium, firefox, webkit } from 'playwright'
 
 const root = resolve(import.meta.dirname, '../..')
 const cases = [
+  { label: 'renamed DP state table', source: 'function solve(nums) { const states = Array(nums.length).fill(0); states[0] = nums[0]; for (let i = 1; i < nums.length; i++) states[i] = states[i - 1] + nums[i]; return states[nums.length - 1]; }', input: '[2, 3, 4]', expected: 9 },
   { label: 'sparse array deltas', source: 'function solve() { const a = Array(1000).fill(7); a.fill(9, 5, 6); a.push(8); return a[5] + a.length; }', input: '', expected: 1010 },
   { label: 'array mutation', source: 'function solve(a) { a.push(3); return a; }', input: '[1, 2]', expected: [1, 2, 3] },
   { label: 'literal-only input', source: 'function solve(o) { return o.value[0] + 1; }', input: '{value: [2,],}', expected: 3 },
@@ -94,6 +95,36 @@ try {
               await page.waitForFunction(() => document.querySelectorAll('.array-value')[5]?.textContent === '7')
               await timeline.press('End')
               await page.waitForFunction(() => document.querySelectorAll('.array-value')[5]?.textContent === '9')
+            }
+            if (test.label === 'renamed DP state table') {
+              const pause = page.getByRole('button', { name: '暂停', exact: true })
+              if (await pause.isVisible()) await pause.click()
+              await page.getByRole('button', { name: '全程事件', exact: true }).click()
+              const timeline = page.getByRole('slider', { name: '执行时间轴' })
+              await timeline.press('End')
+              await page.getByRole('img', { name: 'states 动态规划状态转移图', exact: true }).waitFor()
+              await page.waitForFunction(() => [...document.querySelectorAll('.dp-node .node-value')]
+                .map(node => node.textContent).join(',') === '2,5,9')
+              await timeline.press('Home')
+              const stateStart = response.events.findIndex(event => event.type === 'track' && event.target === 'states')
+              assert.ok(stateStart >= 0)
+              for (let index = 0; index < stateStart; index++) await timeline.press('ArrowRight')
+              await page.waitForFunction(() => [...document.querySelectorAll('.dp-node .node-value')]
+                .map(node => node.textContent).join(',') === '0,0,0')
+              await timeline.press('End')
+              await page.waitForFunction(() => [...document.querySelectorAll('.dp-node .node-value')]
+                .map(node => node.textContent).join(',') === '2,5,9')
+              const starts = await page.evaluate(() => window.__workerStarts)
+              // Cached decisions must still respond to manual preference changes,
+              // without rerunning the algorithm or losing the selected DP table.
+              await page.locator('#model-select').selectOption('array')
+              await page.locator('.array-scene').waitFor()
+              assert.match(await page.locator('.model-notice').textContent(), /手动选用/)
+              await page.locator('#model-select').selectOption('auto')
+              await page.getByRole('img', { name: 'states 动态规划状态转移图', exact: true }).waitFor()
+              await page.waitForFunction(() => [...document.querySelectorAll('.dp-node .node-value')]
+                .map(node => node.textContent).join(',') === '2,5,9')
+              assert.equal(await page.evaluate(() => window.__workerStarts), starts)
             }
             results[variant].push({ worker: normalize(response), notice: await page.locator('.model-notice').textContent() })
           }

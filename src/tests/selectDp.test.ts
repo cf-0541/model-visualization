@@ -21,7 +21,19 @@ function run(source: string, input = ''): RuntimeEvent[] {
 
 function expectLegacySelection(events: RuntimeEvent[], expected?: string | null) {
   const original = structuredClone(events)
-  const legacy = selectDpTarget(compileTrace(events))
+  const steps = compileTrace(events)
+  const legacy = selectDpTarget(steps)
+  const scores = new Map<string, number>()
+  for (const step of steps) {
+    const write = step.snapshot.write
+    if (step.event.type !== 'write' || !write) continue
+    const dependent = step.snapshot.reads.some((read) => read.target === write.target &&
+      read.path.length > 0 && read.path[0] !== write.path[0])
+    scores.set(write.target, (scores.get(write.target) ?? 0) + (dependent ? 5 : 1))
+  }
+  const expectedSummary = Object.entries(steps.at(-1)?.snapshot.tracked ?? {}).flatMap(([target, value]) =>
+    Array.isArray(value) ? [{ target, nested: value.some(Array.isArray), writeScore: scores.get(target) ?? 0 }] : [])
+  expect(summarizeTraceTargets(events)).toEqual(expectedSummary)
   expect(selectDpTargetFromEvents(events)).toBe(legacy)
   if (expected !== undefined) expect(legacy).toBe(expected)
   expect(events).toEqual(original)
