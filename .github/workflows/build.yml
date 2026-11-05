@@ -44,6 +44,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Run tests
         run: pnpm test
+      - name: Test deployment tooling
+        run: python3 -m unittest discover -s deploy -p 'test_*.py' -v
       - name: Verify experimental AST parity
         run: pnpm pilot:ast
       - name: Build production bundle
