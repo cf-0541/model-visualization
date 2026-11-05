@@ -16,11 +16,11 @@ import { EventInspector } from './components/EventInspector'
 import { VisualizationStage } from './components/VisualizationStage'
 import { examples } from './examples'
 import { readShareHash, shareUrl } from './share'
-import { compileTrace, createTraceCursor, keyFrameIndices } from './trace/compileTrace'
+import { createTraceCursor, keyFrameIndices } from './trace/compileTrace'
 import { playbackDelay } from './trace/playback'
 import { decideModel } from './trace/detectModel'
-import { selectDpTarget } from './trace/selectDp'
-import type { ModelPreference, RunResult, VisualStep } from './types'
+import { selectDpTargetFromEvents } from './trace/selectDp'
+import type { ModelPreference, RunResult } from './types'
 
 const modelOptions: Array<{ value: ModelPreference; label: string }> = [
   { value: 'auto', label: '自动识别模型' },
@@ -46,7 +46,6 @@ export default function App() {
   const [mode, setMode] = useState<'edit' | 'trace'>('edit')
   const [preference, setPreference] = useState<ModelPreference>(shared?.model ?? 'auto')
   const [runResult, setRunResult] = useState<RunResult | null>(null)
-  const [steps, setSteps] = useState<VisualStep[]>([])
   const [stepIndex, setStepIndex] = useState(0)
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>('key')
   const [playing, setPlaying] = useState(false)
@@ -69,9 +68,8 @@ export default function App() {
       setError(null)
       setNotice('')
       setRunResult(null)
-      setSteps([])
       try {
-        // Keep Babel's parser and instrumentation out of the initial bundle.
+        // Keep source parsing and instrumentation out of the initial bundle.
         const [{ parseInput }, { runCode }] = await Promise.all([
           import('./parseInput'),
           import('./runtime/runCode'),
@@ -80,11 +78,9 @@ export default function App() {
         const parsedInput = parseInput(inputText)
         const result = await runCode(source, parsedInput)
         if (id !== runId.current) return
-        const nextSteps = compileTrace(result.events)
         const nextKeyIndices = keyFrameIndices(result.events)
         if (result.truncated) setNotice(result.truncated)
         setRunResult(result)
-        setSteps(nextSteps)
         setPlaybackMode('key')
         setStepIndex(result.truncated ? Math.max(0, nextKeyIndices.length - 1) : 0)
         setMode('trace')
@@ -130,9 +126,11 @@ export default function App() {
     return () => window.clearTimeout(timer)
   }, [playing, speed, stepIndex, total, playbackMode, keyIndices, cursor])
 
-  const decision = runResult ? decideModel(runResult.events, runResult.analysis, preference) : null
+  const decision = useMemo(() => runResult
+    ? decideModel(runResult.events, runResult.analysis, preference) : null, [runResult, preference])
   const model = decision?.model ?? 'unknown'
-  const dpTarget = useMemo(() => selectDpTarget(steps), [steps])
+  const dpTarget = useMemo(() => events && model === 'dp'
+    ? selectDpTargetFromEvents(events) : null, [events, model])
   const changePlaybackMode = (next: PlaybackMode) => {
     if (next === playbackMode) return
     const currentEvent = eventIndex ?? 0
@@ -144,7 +142,6 @@ export default function App() {
   const invalidate = () => {
     runId.current += 1
     setRunResult(null)
-    setSteps([])
     setStepIndex(0)
     setPlaybackMode('key')
     setRunning(false)

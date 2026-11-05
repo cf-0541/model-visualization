@@ -284,6 +284,27 @@ export function createTraceCursor(events: RuntimeEvent[], kinds?: ReadonlyMap<nu
   return { at, kindAt }
 }
 
+export interface TraceTargetSummary {
+  target: string
+  nested: boolean
+  writeScore: number
+}
+
+// Match the bounded compiler's target-selection evidence without materializing
+// any VisualStep or retaining full tracked snapshots for sampled frames.
+export function summarizeTraceTargets(events: RuntimeEvent[]): TraceTargetSummary[] {
+  const selected = selectFrames(events)
+  const state = createState()
+  const scores = new Map<string, number>()
+  events.forEach((event, index) => {
+    state.apply(event)
+    if (event.type !== 'write' || !selected.has(index)) return
+    const write = state.writeDependency()
+    if (write) scores.set(write.target, (scores.get(write.target) ?? 0) + (write.dependent ? 5 : 1))
+  })
+  return state.targetSummary(scores)
+}
+
 function createState() {
   const tracked: Record<string, unknown> = {}
   const callStack: CallFrame[] = []
@@ -408,7 +429,25 @@ function createState() {
       snapshot,
     }
   }
-  return { apply, frame }
+  function writeDependency(): { target: string; dependent: boolean } | null {
+    // A patch is active only when apply() found a replay array. Inspect its
+    // pointer, not arrayWriteView(), which would materialize before/after views.
+    const write = activeArrayWrite ?? activeWrite
+    if (!write) return null
+    return {
+      target: write.target,
+      dependent: activeReads.some((read) => read.target === write.target &&
+        read.path.length > 0 && read.path[0] !== write.path[0]),
+    }
+  }
+
+  function targetSummary(scores: ReadonlyMap<string, number>): TraceTargetSummary[] {
+    return Object.entries(tracked).flatMap(([target, value]) => Array.isArray(value)
+      ? [{ target, nested: value.some(Array.isArray), writeScore: scores.get(target) ?? 0 }]
+      : [])
+  }
+
+  return { apply, frame, writeDependency, targetSummary }
 }
 
 export function compileTrace(events: RuntimeEvent[]): VisualStep[] {

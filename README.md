@@ -98,3 +98,7 @@ Worker 设置 2.5 秒超时、4,000 条事件和 10,000 次循环迭代上限；
 ## 公开构建记录
 
 推送到 `main` 或提交 PR 时，GitHub Actions 会执行测试与生产构建，并将 `dist` 保存为该次运行的 workflow artifact。发布新 Release 时，同一流程会把 `dist` 压缩包附到 Release；对于已发布的版本，可在 Actions 中手动运行该流程，输入已有的 Tag（如 `v0.1.3`）补齐附件。Release 构建会检出对应 Tag 并校验 `package.json` 版本，不把 `dist` 提交进 Git 历史。
+
+## 服务器部署
+
+Ubuntu / Nginx 的版本化部署、失败恢复、手动回滚，以及域名、备案、HTTPS 的前置条件见 [部署手册](deploy/README.md)。部署脚本只操作网站产物，不执行访客提交的算法；当前 CI 只校验脚本，不自动连接生产服务器。
