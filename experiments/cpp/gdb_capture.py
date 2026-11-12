@@ -15,6 +15,12 @@ class LimitReached(Exception):
     pass
 
 
+def is_int_vector(type_):
+    # Type.tag is the declaration name, unlike the platform-dependent display
+    # string (Ubuntu GDB may prepend "class " to str(type_)).
+    return type_.code == gdb.TYPE_CODE_STRUCT and (type_.tag or "").startswith("std::vector<int,")
+
+
 def run(config):
     events = []
     last_values = {}
@@ -50,7 +56,7 @@ def run(config):
             return [read_value(value[i], budget, depth + 1) for i in range(high + 1)]
         # Deliberately read libstdc++ storage, not operator[]/size() or pretty-printers.
         # This is an explicit implementation-specific pilot contract, not arbitrary STL support.
-        if type_.code == gdb.TYPE_CODE_STRUCT and str(type_).startswith("std::vector<int,"):
+        if is_int_vector(type_):
             start = value["_M_impl"]["_M_start"]
             finish = value["_M_impl"]["_M_finish"]
             size = int(finish - start) if int(start) != 0 else 0
@@ -216,5 +222,6 @@ def run(config):
     Path(config["report"]).write_text(json.dumps(report, ensure_ascii=False, allow_nan=False), encoding="utf-8")
 
 
-with open(os.environ["CPP_PILOT_CONFIG"], encoding="utf-8") as config_file:
-    run(json.load(config_file))
+if __name__ == "__main__":
+    with open(os.environ["CPP_PILOT_CONFIG"], encoding="utf-8") as config_file:
+        run(json.load(config_file))

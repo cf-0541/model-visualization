@@ -6,12 +6,14 @@ than silently claiming integration coverage. No repository/user code is discover
 import argparse
 import json
 import os
+import runpy
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import run
 
@@ -112,6 +114,37 @@ class GuardTests(unittest.TestCase):
                     run.bounded_process([sys.executable, '-c', code], Path(temp), timeout)
 
 
+class DebuggerTypeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Load only definitions; no debugger, native program or report is started.
+        gdb = mock.Mock(TYPE_CODE_STRUCT=3)
+        with mock.patch.dict(sys.modules, {'gdb': gdb}):
+            driver = runpy.run_path(str(HERE / 'gdb_capture.py'))
+        cls.is_int_vector = staticmethod(driver['is_int_vector'])
+
+    def debug_type(self, tag, display, code=3):
+        type_ = mock.MagicMock()
+        type_.tag, type_.code = tag, code
+        type_.__str__.return_value = display
+        return type_
+
+    def test_vector_recognition_ignores_gdb_class_display_prefix(self):
+        tag = 'std::vector<int, std::allocator<int> >'
+        # Ubuntu GDB emitted "class ..." while Windows emitted "std::vector...".
+        for prefix in ('', 'class ', 'struct '):
+            with self.subTest(prefix=prefix):
+                self.assertTrue(self.is_int_vector(self.debug_type(tag, prefix + tag)))
+
+    def test_vector_recognition_does_not_expand_supported_types(self):
+        for tag, code in [(None, 3), ('std::vector<double, std::allocator<double> >', 3),
+                          ('std::vector<bool, std::allocator<bool> >', 3),
+                          ('other::vector<int, allocator<int> >', 3),
+                          ('std::vector<int, std::allocator<int> >', 1)]:
+            with self.subTest(tag=tag, code=code):
+                self.assertFalse(self.is_int_vector(self.debug_type(tag, str(tag), code)))
+
+
 class NativeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -157,6 +190,17 @@ class NativeTests(unittest.TestCase):
                     (samples / (Path(name).stem + '.json')).write_text(
                         json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
+    def test_vector_alias_and_empty_storage_keep_length_patches(self):
+        report = self.source(
+            '#include <vector>\nusing Numbers = std::vector<int>;\nNumbers value;\n'
+            'int main(){\n value.push_back(9);\n value.pop_back();\n return 0;\n}\n',
+            result='value')
+        self.assertEqual(report['status'], 'complete', report['reason'])
+        self.assertEqual(replay(report), {'value': []})
+        self.assertEqual(report['events'][-1]['result'], [])
+        self.assertEqual([(e['arrayPatch']['beforeLength'], e['arrayPatch']['afterLength'])
+                          for e in report['events'] if 'arrayPatch' in e], [(0, 1), (1, 0)])
+
     def test_event_and_step_limits_are_explicitly_incomplete(self):
         for options in ({'max_events': 8}, {'max_steps': 2}):
             with self.subTest(options=options):
@@ -166,7 +210,9 @@ class NativeTests(unittest.TestCase):
 
     def test_missing_or_unsupported_global_is_error(self):
         for source in ('int main(){return 0;}', 'double value=1.5; int main(){return 0;}',
-                       'long long value=1; int main(){return 0;}', 'int* value=nullptr; int main(){return 0;}'):
+                       'long long value=1; int main(){return 0;}', 'int* value=nullptr; int main(){return 0;}',
+                       '#include <vector>\nstd::vector<double> value; int main(){return 0;}',
+                       '#include <vector>\nstd::vector<bool> value; int main(){return 0;}'):
             with self.subTest(source=source):
                 report = self.source(source)
                 replay(report)
