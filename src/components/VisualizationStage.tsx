@@ -19,6 +19,7 @@ interface VisualizationStageProps {
   model: DetectedModel
   step: VisualStep | null
   running: boolean
+  importing?: boolean
   dpTarget?: string | null
 }
 
@@ -33,7 +34,7 @@ const modelMeta: Record<
   graph: { label: '图遍历模型', eyebrow: 'GRAPH MODEL', icon: Network },
 }
 
-export function VisualizationStage({ model, step, running, dpTarget }: VisualizationStageProps) {
+export function VisualizationStage({ model, step, running, dpTarget, importing = false }: VisualizationStageProps) {
   const meta = modelMeta[model]
   const ModelIcon = meta.icon
 
@@ -56,16 +57,16 @@ export function VisualizationStage({ model, step, running, dpTarget }: Visualiza
       <div className="scene-copy" aria-live="polite">
         <div>
           <span className="step-kicker">CURRENT STEP</span>
-          <h3>{running ? '执行代码中…' : step?.title ?? '等待运行'}</h3>
+          <h3>{running ? (importing ? '校验 C++ 轨迹中…' : '执行代码中…') : step?.title ?? '等待运行'}</h3>
         </div>
-        <p>{running ? '代码正在隔离的 Worker 中执行并采集事件。' : step?.description ?? '点击“运行并生成动画”开始。'}</p>
+        <p>{running ? (importing ? '只读取并校验 JSON，不执行其中的源码。' : '代码正在隔离的 Worker 中执行并采集事件。') : step?.description ?? '点击“运行并生成动画”开始。'}</p>
       </div>
 
       <div className={`scene-viewport model-${model}${running ? ' is-running' : ''}`}>
         {running ? (
           <div className="stage-loader" role="status">
             <span className="loader-orbit"><i /><i /><i /></span>
-            <strong>解析 AST · 注入追踪 · 执行</strong>
+            <strong>{importing ? '读取 JSON · 校验协议 · 准备回放' : '解析 AST · 注入追踪 · 执行'}</strong>
           </div>
         ) : step && model === 'unknown' ? (
           <div className="stage-placeholder" role="status">

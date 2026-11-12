@@ -1,0 +1,377 @@
+{
+  "schemaVersion": 1,
+  "language": "cpp",
+  "capture": "debugger-line-sampling",
+  "status": "complete",
+  "reason": null,
+  "events": [
+    {
+      "seq": 0,
+      "type": "track",
+      "line": 0,
+      "target": "numbers",
+      "value": [
+        7,
+        3,
+        5,
+        1
+      ]
+    },
+    {
+      "seq": 1,
+      "type": "call",
+      "line": 16,
+      "name": "main",
+      "callId": 1,
+      "depth": 0,
+      "args": {}
+    },
+    {
+      "seq": 2,
+      "type": "line",
+      "line": 16
+    },
+    {
+      "seq": 3,
+      "type": "call",
+      "line": 4,
+      "name": "bubble",
+      "callId": 2,
+      "depth": 1,
+      "args": {}
+    },
+    {
+      "seq": 4,
+      "type": "line",
+      "line": 4
+    },
+    {
+      "seq": 5,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 6,
+      "type": "line",
+      "line": 6
+    },
+    {
+      "seq": 7,
+      "type": "line",
+      "line": 7
+    },
+    {
+      "seq": 8,
+      "type": "line",
+      "line": 8
+    },
+    {
+      "seq": 9,
+      "type": "write",
+      "line": 8,
+      "target": "numbers",
+      "path": [
+        0
+      ],
+      "before": 7,
+      "after": 3
+    },
+    {
+      "seq": 10,
+      "type": "line",
+      "line": 9
+    },
+    {
+      "seq": 11,
+      "type": "write",
+      "line": 9,
+      "target": "numbers",
+      "path": [
+        1
+      ],
+      "before": 3,
+      "after": 7
+    },
+    {
+      "seq": 12,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 13,
+      "type": "line",
+      "line": 6
+    },
+    {
+      "seq": 14,
+      "type": "line",
+      "line": 7
+    },
+    {
+      "seq": 15,
+      "type": "line",
+      "line": 8
+    },
+    {
+      "seq": 16,
+      "type": "write",
+      "line": 8,
+      "target": "numbers",
+      "path": [
+        1
+      ],
+      "before": 7,
+      "after": 5
+    },
+    {
+      "seq": 17,
+      "type": "line",
+      "line": 9
+    },
+    {
+      "seq": 18,
+      "type": "write",
+      "line": 9,
+      "target": "numbers",
+      "path": [
+        2
+      ],
+      "before": 5,
+      "after": 7
+    },
+    {
+      "seq": 19,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 20,
+      "type": "line",
+      "line": 6
+    },
+    {
+      "seq": 21,
+      "type": "line",
+      "line": 7
+    },
+    {
+      "seq": 22,
+      "type": "line",
+      "line": 8
+    },
+    {
+      "seq": 23,
+      "type": "write",
+      "line": 8,
+      "target": "numbers",
+      "path": [
+        2
+      ],
+      "before": 7,
+      "after": 1
+    },
+    {
+      "seq": 24,
+      "type": "line",
+      "line": 9
+    },
+    {
+      "seq": 25,
+      "type": "write",
+      "line": 9,
+      "target": "numbers",
+      "path": [
+        3
+      ],
+      "before": 1,
+      "after": 7
+    },
+    {
+      "seq": 26,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 27,
+      "type": "line",
+      "line": 4
+    },
+    {
+      "seq": 28,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 29,
+      "type": "line",
+      "line": 6
+    },
+    {
+      "seq": 30,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 31,
+      "type": "line",
+      "line": 6
+    },
+    {
+      "seq": 32,
+      "type": "line",
+      "line": 7
+    },
+    {
+      "seq": 33,
+      "type": "line",
+      "line": 8
+    },
+    {
+      "seq": 34,
+      "type": "write",
+      "line": 8,
+      "target": "numbers",
+      "path": [
+        1
+      ],
+      "before": 5,
+      "after": 1
+    },
+    {
+      "seq": 35,
+      "type": "line",
+      "line": 9
+    },
+    {
+      "seq": 36,
+      "type": "write",
+      "line": 9,
+      "target": "numbers",
+      "path": [
+        2
+      ],
+      "before": 1,
+      "after": 5
+    },
+    {
+      "seq": 37,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 38,
+      "type": "line",
+      "line": 4
+    },
+    {
+      "seq": 39,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 40,
+      "type": "line",
+      "line": 6
+    },
+    {
+      "seq": 41,
+      "type": "line",
+      "line": 7
+    },
+    {
+      "seq": 42,
+      "type": "line",
+      "line": 8
+    },
+    {
+      "seq": 43,
+      "type": "write",
+      "line": 8,
+      "target": "numbers",
+      "path": [
+        0
+      ],
+      "before": 3,
+      "after": 1
+    },
+    {
+      "seq": 44,
+      "type": "line",
+      "line": 9
+    },
+    {
+      "seq": 45,
+      "type": "write",
+      "line": 9,
+      "target": "numbers",
+      "path": [
+        1
+      ],
+      "before": 1,
+      "after": 3
+    },
+    {
+      "seq": 46,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 47,
+      "type": "line",
+      "line": 4
+    },
+    {
+      "seq": 48,
+      "type": "line",
+      "line": 13
+    },
+    {
+      "seq": 49,
+      "type": "return",
+      "line": 13,
+      "value": null,
+      "name": "bubble",
+      "callId": 2,
+      "depth": 1,
+      "args": {}
+    },
+    {
+      "seq": 50,
+      "type": "line",
+      "line": 17
+    },
+    {
+      "seq": 51,
+      "type": "line",
+      "line": 18
+    },
+    {
+      "seq": 52,
+      "type": "return",
+      "line": 18,
+      "value": null,
+      "name": "main",
+      "callId": 1,
+      "depth": 0,
+      "args": {}
+    },
+    {
+      "seq": 53,
+      "type": "done",
+      "line": 18,
+      "result": {
+        "exitCode": 0
+      },
+      "duration": 0
+    }
+  ],
+  "steps": 38,
+  "limits": {
+    "maxSteps": 1200,
+    "maxEvents": 4000
+  },
+  "source": {
+    "name": "bubble.cpp",
+    "text": "int numbers[] = {7, 3, 5, 1};\n\nvoid bubble(int (&a)[4]) {\n    for (int i = 0; i < 3; ++i) {\n        for (int j = 0; j < 3 - i; ++j) {\n            if (a[j] > a[j + 1]) {\n                int temp = a[j];\n                a[j] = a[j + 1];\n                a[j + 1] = temp;\n            }\n        }\n    }\n}\n\nint main() {\n    bubble(numbers);\n    return numbers[0] == 1 && numbers[3] == 7 ? 0 : 1;\n}\n"
+  }
+}

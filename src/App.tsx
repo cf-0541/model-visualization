@@ -8,6 +8,7 @@ import {
   Share2,
   Sparkles,
   WandSparkles,
+  Upload,
 } from 'lucide-react'
 import { CodePanel } from './components/CodePanel'
 import { Controls } from './components/Controls'
@@ -53,6 +54,9 @@ export default function App() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState(shared ? '分享链接已载入，请检查代码后手动运行；链接中的代码不会自动执行。' : '')
+  const [cppReplay, setCppReplay] = useState<{ source: string; name: string } | null>(null)
+  const [loadingCpp, setLoadingCpp] = useState(false)
+  const importRef = useRef<HTMLInputElement>(null)
   const runId = useRef(0)
   const workspaceRef = useRef<HTMLElement>(null)
 
@@ -64,6 +68,7 @@ export default function App() {
     ) => {
       const id = ++runId.current
       setRunning(true)
+      setLoadingCpp(false)
       setPlaying(false)
       setError(null)
       setNotice('')
@@ -110,7 +115,18 @@ export default function App() {
   const cursor = useMemo(() => events ? createTraceCursor(events) : null, [events])
   const total = playbackMode === 'key' ? keyIndices.length : events?.length ?? 0
   const eventIndex = playbackMode === 'key' ? keyIndices[stepIndex] : stepIndex
-  const currentStep = useMemo(() => cursor?.at(eventIndex ?? -1) ?? null, [cursor, eventIndex])
+  const currentStep = useMemo(() => {
+    const step = cursor?.at(eventIndex ?? -1) ?? null
+    if (cppReplay && step?.event.type === 'return') return {
+      ...step, title: `${step.event.name} 调用离开`,
+      description: '调试器观察到调用栈退出；未采集该函数的返回值（null 不代表 C++ 返回了空值）。',
+    }
+    if (cppReplay && step?.event.type === 'done') return {
+      ...step, title: 'C++ 轨迹采集完成',
+      description: `采集结果 ${JSON.stringify(step.event.result)}；调试采集耗时 ${step.event.duration.toFixed(1)}ms，含调试器开销，不是原生运行速度。`,
+    }
+    return step
+  }, [cursor, eventIndex, cppReplay])
 
   useEffect(() => {
     if (!playing || total < 2) return
@@ -145,6 +161,7 @@ export default function App() {
     setStepIndex(0)
     setPlaybackMode('key')
     setRunning(false)
+    setLoadingCpp(false)
     setPlaying(false)
     setMode('edit')
     setError(null)
@@ -164,6 +181,7 @@ export default function App() {
   const loadExample = (id: string) => {
     const example = examples.find((item) => item.id === id)
     if (!example) return
+    setCppReplay(null)
     setSelectedExample(id)
     setCode(example.code)
     setInput(example.input)
@@ -171,6 +189,36 @@ export default function App() {
     setError(null)
     setNotice('')
     void execute(example.code, example.input, 'auto')
+  }
+
+  const importTrace = async (file: File) => {
+    const id = ++runId.current
+    setRunning(true)
+    setLoadingCpp(true)
+    setPlaying(false)
+    setError(null)
+    try {
+      if (file.size > 8 * 1024 * 1024) throw new Error('C++ 轨迹文件超过 8 MiB。')
+      const { importCppTrace, CPP_REPLAY_NOTICE } = await import('./trace/importCppTrace')
+      const imported = importCppTrace(await file.text())
+      if (id !== runId.current) return
+      setCppReplay({ source: imported.source, name: imported.name })
+      setRunResult(imported.result)
+      setSelectedExample('custom')
+      setPreference('auto')
+      setPlaybackMode('key')
+      setStepIndex(imported.status === 'complete' ? 0 : Math.max(0, keyFrameIndices(imported.result.events).length - 1))
+      setMode('trace')
+      setNotice(`${CPP_REPLAY_NOTICE}${imported.result.truncated ? ` ${imported.result.truncated}` : ''}`)
+    } catch (importError) {
+      if (id !== runId.current) return
+      setError(importError instanceof Error ? importError.message : String(importError))
+    } finally {
+      if (id === runId.current) {
+        setRunning(false)
+        setLoadingCpp(false)
+      }
+    }
   }
 
   return (
@@ -184,9 +232,9 @@ export default function App() {
           </div>
         </div>
         <div className="pipeline" aria-label="运行管线">
-          <span><Braces size={14} /> AST 插桩</span>
+          <span><Braces size={14} /> {cppReplay ? 'C++ 行采样' : 'AST 插桩'}</span>
           <i />
-          <span><Cpu size={14} /> Worker 执行</span>
+          <span><Cpu size={14} /> {cppReplay ? 'JSON 回放' : 'Worker 执行'}</span>
           <i />
           <span><Sparkles size={14} /> 动态模型</span>
         </div>
@@ -216,7 +264,7 @@ export default function App() {
 
         <div className="example-description">
           <CircleDot size={14} />
-          <span>{selectedDefinition?.description ?? '粘贴函数或完整脚本，即可生成执行轨迹。'}</span>
+          <span>{selectedDefinition?.description ?? (cppReplay ? `C++ 只读轨迹：${cppReplay.name}` : '粘贴函数或完整脚本，即可生成执行轨迹。')}</span>
         </div>
 
         <div className="select-group model-select">
@@ -235,17 +283,30 @@ export default function App() {
           </div>
         </div>
 
-        <button className="share-button" type="button" onClick={() => void share()}>
+        <input ref={importRef} type="file" accept=".json,application/json" hidden aria-label="C++ 轨迹 JSON"
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            event.target.value = ''
+            if (file) void importTrace(file)
+          }} />
+        <button className="share-button" type="button" disabled={running} onClick={() => importRef.current?.click()}>
+          <Upload size={16} /> 导入 C++ 轨迹（实验）
+        </button>
+        {cppReplay ? <button className="share-button" type="button" onClick={() => {
+          invalidate()
+          setCppReplay(null)
+        }}>返回 JavaScript</button> : null}
+        <button className="share-button" type="button" disabled={Boolean(cppReplay) || running} onClick={() => void share()}>
           <Share2 size={16} /> 分享链接
         </button>
         <button
           className="run-button"
           type="button"
-          onClick={() => void execute()}
-          disabled={running}
+          onClick={() => { if (!cppReplay) void execute() }}
+          disabled={running || Boolean(cppReplay)}
         >
           <Play size={17} fill="currentColor" />
-          {running ? '正在生成…' : '运行并生成动画'}
+          {loadingCpp ? '正在导入…' : running ? '正在生成…' : cppReplay ? 'C++ 仅支持导入回放' : '运行并生成动画'}
         </button>
       </section>
 
@@ -261,7 +322,8 @@ export default function App() {
 
       <section className="workspace" ref={workspaceRef}>
         <CodePanel
-          code={code}
+          code={cppReplay?.source ?? code}
+          readOnly={Boolean(cppReplay)}
           input={input}
           mode={mode}
           currentLine={currentStep?.line ?? 0}
@@ -279,7 +341,7 @@ export default function App() {
         />
 
         <div className="stage-column">
-          <VisualizationStage model={model} step={currentStep} running={running} dpTarget={dpTarget} />
+          <VisualizationStage importing={loadingCpp} model={model} step={currentStep} running={running} dpTarget={dpTarget} />
           <EventInspector step={currentStep} rawEvent={playbackMode === 'all' ? events?.[eventIndex] : null} />
           <Controls
             index={stepIndex}
@@ -303,11 +365,11 @@ export default function App() {
       </section>
 
       <footer className="footer-status">
-        <span>本地 Worker 隔离执行 · 2.5 秒 / 4,000 事件 / 10,000 次迭代上限</span>
+        <span>{cppReplay ? 'C++ 本地调试器轨迹 · 浏览器只读回放 · 不是逐次读写插桩' : '本地 Worker 隔离执行 · 2.5 秒 / 4,000 事件 / 10,000 次迭代上限'}</span>
         <span className="footer-metrics">
           <strong>{runResult ? runResult.events.length.toLocaleString() : '0'}</strong> events
           <i />
-          <strong>{runResult ? `${runResult.duration.toFixed(1)} ms` : '—'}</strong>
+          <strong>{runResult && !runResult.truncated ? `${runResult.duration.toFixed(1)} ms${cppReplay ? '（调试采集）' : ''}` : '—'}</strong>
           <i />
           result <code>{runResult?.truncated ? '未完成' : runResult ? resultText(runResult.result) : '—'}</code>
         </span>

@@ -1,0 +1,50 @@
+name: Experimental C++ native capture and production replay
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  cpp-pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 12.14.0
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install native debugger and compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ gdb python3
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Capture trusted fixtures and run native regression
+        env:
+          CPP_PILOT_EXPORT: '1'
+        run: python3 -m unittest discover -s experiments/cpp -p 'test_*.py' -v
+      - name: Replay freshly generated reports through existing state compiler
+        run: pnpm test
+      - name: Type check and build
+        run: pnpm build
+      - name: Install Chromium for production UI regression
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Verify production UI imports, seeks, and returns to JavaScript
+        run: pnpm pilot:cpp:browser
+      - name: Verify compact-screen replay and visible import errors
+        env:
+          CPP_VIEWPORT_WIDTH: '390'
+        run: pnpm pilot:cpp:browser

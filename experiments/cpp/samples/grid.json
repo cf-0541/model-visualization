@@ -1,0 +1,357 @@
+{
+  "schemaVersion": 1,
+  "language": "cpp",
+  "capture": "debugger-line-sampling",
+  "status": "complete",
+  "reason": null,
+  "events": [
+    {
+      "seq": 0,
+      "type": "track",
+      "line": 0,
+      "target": "dp",
+      "value": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "seq": 1,
+      "type": "call",
+      "line": 4,
+      "name": "main",
+      "callId": 1,
+      "depth": 0,
+      "args": {}
+    },
+    {
+      "seq": 2,
+      "type": "line",
+      "line": 4
+    },
+    {
+      "seq": 3,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 4,
+      "type": "line",
+      "line": 6
+    },
+    {
+      "seq": 5,
+      "type": "line",
+      "line": 7
+    },
+    {
+      "seq": 6,
+      "type": "write",
+      "line": 7,
+      "target": "dp",
+      "path": [
+        0,
+        0
+      ],
+      "before": 0,
+      "after": 1
+    },
+    {
+      "seq": 7,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 8,
+      "type": "line",
+      "line": 6
+    },
+    {
+      "seq": 9,
+      "type": "line",
+      "line": 7
+    },
+    {
+      "seq": 10,
+      "type": "write",
+      "line": 7,
+      "target": "dp",
+      "path": [
+        0,
+        1
+      ],
+      "before": 0,
+      "after": 1
+    },
+    {
+      "seq": 11,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 12,
+      "type": "line",
+      "line": 6
+    },
+    {
+      "seq": 13,
+      "type": "line",
+      "line": 7
+    },
+    {
+      "seq": 14,
+      "type": "write",
+      "line": 7,
+      "target": "dp",
+      "path": [
+        0,
+        2
+      ],
+      "before": 0,
+      "after": 1
+    },
+    {
+      "seq": 15,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 16,
+      "type": "line",
+      "line": 4
+    },
+    {
+      "seq": 17,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 18,
+      "type": "line",
+      "line": 6
+    },
+    {
+      "seq": 19,
+      "type": "line",
+      "line": 7
+    },
+    {
+      "seq": 20,
+      "type": "write",
+      "line": 7,
+      "target": "dp",
+      "path": [
+        1,
+        0
+      ],
+      "before": 0,
+      "after": 1
+    },
+    {
+      "seq": 21,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 22,
+      "type": "line",
+      "line": 6
+    },
+    {
+      "seq": 23,
+      "type": "line",
+      "line": 9
+    },
+    {
+      "seq": 24,
+      "type": "write",
+      "line": 9,
+      "target": "dp",
+      "path": [
+        1,
+        1
+      ],
+      "before": 0,
+      "after": 2
+    },
+    {
+      "seq": 25,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 26,
+      "type": "line",
+      "line": 6
+    },
+    {
+      "seq": 27,
+      "type": "line",
+      "line": 9
+    },
+    {
+      "seq": 28,
+      "type": "write",
+      "line": 9,
+      "target": "dp",
+      "path": [
+        1,
+        2
+      ],
+      "before": 0,
+      "after": 3
+    },
+    {
+      "seq": 29,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 30,
+      "type": "line",
+      "line": 4
+    },
+    {
+      "seq": 31,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 32,
+      "type": "line",
+      "line": 6
+    },
+    {
+      "seq": 33,
+      "type": "line",
+      "line": 7
+    },
+    {
+      "seq": 34,
+      "type": "write",
+      "line": 7,
+      "target": "dp",
+      "path": [
+        2,
+        0
+      ],
+      "before": 0,
+      "after": 1
+    },
+    {
+      "seq": 35,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 36,
+      "type": "line",
+      "line": 6
+    },
+    {
+      "seq": 37,
+      "type": "line",
+      "line": 9
+    },
+    {
+      "seq": 38,
+      "type": "write",
+      "line": 9,
+      "target": "dp",
+      "path": [
+        2,
+        1
+      ],
+      "before": 0,
+      "after": 3
+    },
+    {
+      "seq": 39,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 40,
+      "type": "line",
+      "line": 6
+    },
+    {
+      "seq": 41,
+      "type": "line",
+      "line": 9
+    },
+    {
+      "seq": 42,
+      "type": "write",
+      "line": 9,
+      "target": "dp",
+      "path": [
+        2,
+        2
+      ],
+      "before": 0,
+      "after": 6
+    },
+    {
+      "seq": 43,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 44,
+      "type": "line",
+      "line": 4
+    },
+    {
+      "seq": 45,
+      "type": "line",
+      "line": 13
+    },
+    {
+      "seq": 46,
+      "type": "line",
+      "line": 14
+    },
+    {
+      "seq": 47,
+      "type": "return",
+      "line": 14,
+      "value": null,
+      "name": "main",
+      "callId": 1,
+      "depth": 0,
+      "args": {}
+    },
+    {
+      "seq": 48,
+      "type": "done",
+      "line": 14,
+      "result": {
+        "exitCode": 0
+      },
+      "duration": 0
+    }
+  ],
+  "steps": 36,
+  "limits": {
+    "maxSteps": 1200,
+    "maxEvents": 4000
+  },
+  "source": {
+    "name": "grid.cpp",
+    "text": "int dp[3][3] = {};\n\nint main() {\n    for (int row = 0; row < 3; ++row) {\n        for (int col = 0; col < 3; ++col) {\n            if (row == 0 || col == 0) {\n                dp[row][col] = 1;\n            } else {\n                dp[row][col] = dp[row - 1][col] + dp[row][col - 1];\n            }\n        }\n    }\n    return dp[2][2] == 6 ? 0 : 1;\n}\n"
+  }
+}

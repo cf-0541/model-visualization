@@ -1,0 +1,265 @@
+{
+  "schemaVersion": 1,
+  "language": "cpp",
+  "capture": "debugger-line-sampling",
+  "status": "complete",
+  "reason": null,
+  "events": [
+    {
+      "seq": 0,
+      "type": "track",
+      "line": 0,
+      "target": "answer",
+      "value": 0
+    },
+    {
+      "seq": 1,
+      "type": "call",
+      "line": 11,
+      "name": "main",
+      "callId": 1,
+      "depth": 0,
+      "args": {}
+    },
+    {
+      "seq": 2,
+      "type": "line",
+      "line": 11
+    },
+    {
+      "seq": 3,
+      "type": "call",
+      "line": 4,
+      "name": "factorial",
+      "callId": 2,
+      "depth": 1,
+      "args": {
+        "n": 5
+      }
+    },
+    {
+      "seq": 4,
+      "type": "line",
+      "line": 4
+    },
+    {
+      "seq": 5,
+      "type": "line",
+      "line": 7
+    },
+    {
+      "seq": 6,
+      "type": "call",
+      "line": 4,
+      "name": "factorial",
+      "callId": 3,
+      "depth": 2,
+      "args": {
+        "n": 4
+      }
+    },
+    {
+      "seq": 7,
+      "type": "line",
+      "line": 4
+    },
+    {
+      "seq": 8,
+      "type": "line",
+      "line": 7
+    },
+    {
+      "seq": 9,
+      "type": "call",
+      "line": 4,
+      "name": "factorial",
+      "callId": 4,
+      "depth": 3,
+      "args": {
+        "n": 3
+      }
+    },
+    {
+      "seq": 10,
+      "type": "line",
+      "line": 4
+    },
+    {
+      "seq": 11,
+      "type": "line",
+      "line": 7
+    },
+    {
+      "seq": 12,
+      "type": "call",
+      "line": 4,
+      "name": "factorial",
+      "callId": 5,
+      "depth": 4,
+      "args": {
+        "n": 2
+      }
+    },
+    {
+      "seq": 13,
+      "type": "line",
+      "line": 4
+    },
+    {
+      "seq": 14,
+      "type": "line",
+      "line": 7
+    },
+    {
+      "seq": 15,
+      "type": "call",
+      "line": 4,
+      "name": "factorial",
+      "callId": 6,
+      "depth": 5,
+      "args": {
+        "n": 1
+      }
+    },
+    {
+      "seq": 16,
+      "type": "line",
+      "line": 4
+    },
+    {
+      "seq": 17,
+      "type": "line",
+      "line": 5
+    },
+    {
+      "seq": 18,
+      "type": "line",
+      "line": 8
+    },
+    {
+      "seq": 19,
+      "type": "return",
+      "line": 8,
+      "value": null,
+      "name": "factorial",
+      "callId": 6,
+      "depth": 5,
+      "args": {
+        "n": 1
+      }
+    },
+    {
+      "seq": 20,
+      "type": "line",
+      "line": 8
+    },
+    {
+      "seq": 21,
+      "type": "return",
+      "line": 8,
+      "value": null,
+      "name": "factorial",
+      "callId": 5,
+      "depth": 4,
+      "args": {
+        "n": 2
+      }
+    },
+    {
+      "seq": 22,
+      "type": "line",
+      "line": 8
+    },
+    {
+      "seq": 23,
+      "type": "return",
+      "line": 8,
+      "value": null,
+      "name": "factorial",
+      "callId": 4,
+      "depth": 3,
+      "args": {
+        "n": 3
+      }
+    },
+    {
+      "seq": 24,
+      "type": "line",
+      "line": 8
+    },
+    {
+      "seq": 25,
+      "type": "return",
+      "line": 8,
+      "value": null,
+      "name": "factorial",
+      "callId": 3,
+      "depth": 2,
+      "args": {
+        "n": 4
+      }
+    },
+    {
+      "seq": 26,
+      "type": "line",
+      "line": 8
+    },
+    {
+      "seq": 27,
+      "type": "write",
+      "line": 8,
+      "target": "answer",
+      "path": [],
+      "before": 0,
+      "after": 120
+    },
+    {
+      "seq": 28,
+      "type": "return",
+      "line": 8,
+      "value": null,
+      "name": "factorial",
+      "callId": 2,
+      "depth": 1,
+      "args": {
+        "n": 5
+      }
+    },
+    {
+      "seq": 29,
+      "type": "line",
+      "line": 12
+    },
+    {
+      "seq": 30,
+      "type": "line",
+      "line": 13
+    },
+    {
+      "seq": 31,
+      "type": "return",
+      "line": 13,
+      "value": null,
+      "name": "main",
+      "callId": 1,
+      "depth": 0,
+      "args": {}
+    },
+    {
+      "seq": 32,
+      "type": "done",
+      "line": 13,
+      "result": 120,
+      "duration": 0
+    }
+  ],
+  "steps": 18,
+  "limits": {
+    "maxSteps": 1200,
+    "maxEvents": 4000
+  },
+  "source": {
+    "name": "recursion.cpp",
+    "text": "int answer = 0;\n\nint factorial(int n) {\n    if (n <= 1) {\n        return 1;\n    }\n    return n * factorial(n - 1);\n}\n\nint main() {\n    answer = factorial(5);\n    return answer == 120 ? 0 : 1;\n}\n"
+  }
+}
