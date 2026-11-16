@@ -1,7 +1,7 @@
 import { analyzeSource, argumentsFor } from '../sourceAnalysis'
 import { instrumentCode } from '../instrumentation/instrument'
 import { DEFAULT_MAX_EVENTS, DEFAULT_MAX_ITERATIONS } from './traceRuntime'
-import type { RunResult, RuntimeEvent } from '../types'
+import type { RunResult, RuntimeEvent, TraceObservation } from '../types'
 
 interface WorkerSuccess {
   ok: true
@@ -9,6 +9,7 @@ interface WorkerSuccess {
   result: unknown
   duration: number
   truncated?: string
+  observation?: TraceObservation
 }
 
 interface WorkerFailure {
@@ -23,6 +24,7 @@ export interface RunOptions {
   timeoutMs?: number
   maxEvents?: number
   maxIterations?: number
+  signal?: AbortSignal
 }
 
 export async function runCode(
@@ -30,6 +32,9 @@ export async function runCode(
   input: unknown,
   options: RunOptions = {},
 ): Promise<RunResult> {
+  const { signal } = options
+  const cancelled = () => new DOMException('运行已取消。', 'AbortError')
+  if (signal?.aborted) throw cancelled()
   const timeoutMs = options.timeoutMs ?? 2_500
   const maxEvents = options.maxEvents ?? DEFAULT_MAX_EVENTS
   const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS
@@ -48,17 +53,29 @@ export async function runCode(
       if (settled) return false
       settled = true
       clearTimeout(timer)
+      signal?.removeEventListener('abort', abort)
+      worker.onmessage = null
+      worker.onerror = null
+      worker.onmessageerror = null
       worker.terminate()
       return true
     }
 
-    const timer = window.setTimeout(() => {
+    const abort = () => {
+      if (finish()) reject(cancelled())
+    }
+    const timer = globalThis.setTimeout(() => {
       if (!finish()) return
-      reject(new Error(`执行超过 ${timeoutMs}ms，已终止。请检查是否存在死循环。`))
+      reject(new Error(`执行超过 ${timeoutMs}ms，已终止，未获得完整轨迹。请缩小输入，或检查是否存在死循环。`))
     }, timeoutMs)
 
     worker.onmessage = (message: MessageEvent<WorkerResponse>) => {
       if (!finish()) return
+      if (!message.data || typeof message.data.ok !== 'boolean' ||
+        (message.data.ok && (!Array.isArray(message.data.events) || !Number.isFinite(message.data.duration)))) {
+        reject(new Error('Worker 返回了无效的轨迹响应。'))
+        return
+      }
       if (!message.data.ok) {
         reject(new Error(message.data.error))
         return
@@ -70,6 +87,7 @@ export async function runCode(
         duration: message.data.duration,
         transformedCode: transformed.code,
         truncated: message.data.truncated,
+        observation: message.data.observation,
       })
     }
 
@@ -78,6 +96,15 @@ export async function runCode(
       reject(new Error(event.message || 'Worker 执行失败。'))
     }
 
-    worker.postMessage({ code: transformed.code, args, entry: analysis.entry, scriptResult: transformed.scriptResult, maxEvents, maxIterations })
+    worker.onmessageerror = () => {
+      if (finish()) reject(new Error('无法读取 Worker 返回的轨迹。'))
+    }
+    signal?.addEventListener('abort', abort, { once: true })
+    if (signal?.aborted) { abort(); return }
+    try {
+      worker.postMessage({ code: transformed.code, args, entry: analysis.entry, scriptResult: transformed.scriptResult, maxEvents, maxIterations })
+    } catch (error) {
+      if (finish()) reject(error)
+    }
   })
 }

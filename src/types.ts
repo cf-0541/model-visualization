@@ -135,6 +135,11 @@ export interface InstrumentResult {
   scriptResult: string | null
 }
 
+export interface TraceObservation {
+  collectionLimit: number
+  collectionTruncated: boolean
+}
+
 export interface RunResult {
   analysis: import('./sourceAnalysis').SourceAnalysis
   events: RuntimeEvent[]
@@ -142,6 +147,7 @@ export interface RunResult {
   transformedCode: string
   duration: number
   truncated?: string
+  observation?: TraceObservation
 }
 
 export interface ExampleDefinition {
@@ -165,4 +171,5 @@ export interface TraceRuntime {
   fail(message: string): void
   truncate(message: string): void
   getEvents(): RuntimeEvent[]
+  getObservation(): TraceObservation
 }

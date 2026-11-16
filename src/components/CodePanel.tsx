@@ -3,6 +3,7 @@ import { Braces, Code2, PlayCircle, ScanLine } from 'lucide-react'
 import type { RuntimeEvent } from '../types'
 
 interface CodePanelProps {
+  readOnly?: boolean
   code: string
   input: string
   mode: 'edit' | 'trace'
@@ -27,6 +28,7 @@ const eventLabels: Record<RuntimeEvent['type'], string> = {
 }
 
 export function CodePanel({
+  readOnly = false,
   code,
   input,
   mode,
@@ -67,7 +69,7 @@ export function CodePanel({
             className={mode === 'edit' ? 'active' : ''}
             onClick={() => onModeChange('edit')}
           >
-            <Code2 size={14} /> 编辑
+            <Code2 size={14} /> {readOnly ? '源码（只读）' : '编辑'}
           </button>
           <button
             type="button"
@@ -86,9 +88,10 @@ export function CodePanel({
           <textarea
             className="code-editor"
             value={code}
+            readOnly={readOnly}
             onChange={(event) => onCodeChange(event.target.value)}
             spellCheck={false}
-            aria-label="算法代码"
+            aria-label={readOnly ? 'C++ 源码（只读）' : '算法代码'}
           />
         ) : (
           <div className="trace-code" ref={traceRef} aria-label="逐行执行代码">
@@ -118,21 +121,30 @@ export function CodePanel({
         )}
       </div>
 
-      <div className="input-section">
-        <label htmlFor="algorithm-input">
-          <span className="input-label">
-            <Braces size={14} /> 算法输入
-          </span>
-          <span className="input-hint">单参数直接传值；多参数用 [arg1, arg2] 或同名对象</span>
-        </label>
-        <textarea
-          id="algorithm-input"
-          className="input-editor"
-          value={input}
-          onChange={(event) => onInputChange(event.target.value)}
-          spellCheck={false}
-          aria-invalid={Boolean(error && error.includes('输入'))}
-        />
+      <div className={`input-section${error ? ' has-error' : ''}`}>
+        {readOnly ? (
+          <p className="input-hint">
+            实验回放：先用本地 g++ / GDB 采集可信 C++ 代码的轨迹，再导入 JSON；此处不编译、不执行 C++。
+            不支持输入或编辑后重跑。未捕获 read / branch，写入行号仅近似。
+          </p>
+        ) : (
+          <>
+            <label htmlFor="algorithm-input">
+              <span className="input-label">
+                <Braces size={14} /> 算法输入
+              </span>
+              <span className="input-hint">单参数直接传值；多参数用 [arg1, arg2] 或同名对象</span>
+            </label>
+            <textarea
+              id="algorithm-input"
+              className="input-editor"
+              value={input}
+              onChange={(event) => onInputChange(event.target.value)}
+              spellCheck={false}
+              aria-invalid={Boolean(error && error.includes('输入'))}
+            />
+          </>
+        )}
         {error ? <div className="inline-error" role="alert">{error}</div> : null}
       </div>
     </aside>

@@ -89,6 +89,7 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
   let nextCallId = 1
   let iterations = 0
   let arrayRevision = 0
+  let collectionTruncated = false
 
   const snapshot = (
     input: unknown,
@@ -119,6 +120,7 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
     seen.add(raw)
 
     if (Array.isArray(raw)) {
+      if (raw.length > MAX_COLLECTION_SIZE) collectionTruncated = true
       const values: unknown[] = new Array(Math.min(raw.length, MAX_COLLECTION_SIZE))
       for (let index = 0; index < values.length; index += 1) {
         const descriptor = Object.getOwnPropertyDescriptor(raw, index)
@@ -134,6 +136,7 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
     for (const key in raw) {
       if (!Object.prototype.hasOwnProperty.call(raw, key)) continue
       if (count++ >= MAX_COLLECTION_SIZE) {
+        collectionTruncated = true
         output['…'] = 'truncated'
         break
       }
@@ -147,6 +150,7 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
   // Capture only bounded primitive slots. Object/accessor elements need the
   // existing deep snapshot fallback: a native callback may mutate them in place.
   const primitiveArrayView = (raw: unknown[]): unknown[] | null => {
+    if (raw.length > MAX_COLLECTION_SIZE) collectionTruncated = true
     const view = new Array(Math.min(raw.length, MAX_COLLECTION_SIZE))
     for (let index = 0; index < view.length; index += 1) {
       const descriptor = Object.getOwnPropertyDescriptor(raw, index)
@@ -418,6 +422,8 @@ export function createTraceRuntime(maxEvents = DEFAULT_MAX_EVENTS, maxIterations
       if (events.length >= maxEvents) events[events.length - 1] = event
       else events.push(event)
     },
+
+    getObservation: () => ({ collectionLimit: MAX_COLLECTION_SIZE, collectionTruncated }),
 
     getEvents() {
       return events

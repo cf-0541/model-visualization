@@ -32,6 +32,10 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium firefox webkit
       - name: Compare integrated production and frozen Babel reference in all three engines
         run: pnpm pilot:production-e2e
+      - name: Verify cancellation and completion UI in all three engines
+        env:
+          RUNTIME_BROWSERS: chromium,firefox,webkit
+        run: pnpm test:runtime:browser
       - name: Compare all emitted JavaScript sizes and assert independent module graphs
         shell: bash
         run: |

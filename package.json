@@ -11,7 +11,12 @@
     "pilot:ast": "node experiments/lightweight-ast/verify.mjs",
     "pilot:build": "node experiments/lightweight-ast/measure-app.mjs",
     "pilot:browser": "node experiments/lightweight-ast/browser.mjs",
-    "pilot:production-e2e": "node experiments/lightweight-ast/production-e2e.mjs"
+    "pilot:production-e2e": "node experiments/lightweight-ast/production-e2e.mjs",
+    "pilot:cpp": "python -m unittest discover -s experiments/cpp -p test_*.py -v",
+    "pilot:cpp:browser": "node experiments/cpp/browser.mjs",
+    "bench:trace": "node experiments/trace-playback/seek.mjs",
+    "bench:trace:prepare": "node experiments/trace-playback/measure.mjs",
+    "test:runtime:browser": "node experiments/runtime/browser.mjs"
   },
   "dependencies": {
     "acorn": "^8.19.0",

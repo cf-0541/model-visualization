@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-import type { RuntimeEvent } from '../types'
+import type { RuntimeEvent, TraceObservation } from '../types'
 import { createTraceRuntime, TraceLimitError } from './traceRuntime'
 
 interface RunnerRequest {
@@ -18,6 +18,7 @@ interface RunnerSuccess {
   result: unknown
   duration: number
   truncated?: string
+  observation: TraceObservation
 }
 
 interface RunnerFailure {
@@ -37,7 +38,7 @@ scope.onmessage = (message: MessageEvent<RunnerRequest>) => {
     if (error instanceof TraceLimitError) {
       trace.truncate(error.message)
       scope.postMessage({ ok: true, events: trace.getEvents(), result: undefined,
-        duration: performance.now() - startedAt, truncated: error.message } satisfies RunnerSuccess)
+        duration: performance.now() - startedAt, truncated: error.message, observation: trace.getObservation() } satisfies RunnerSuccess)
       return
     }
     const text = error instanceof Error ? error.message : String(error)
@@ -57,7 +58,7 @@ scope.onmessage = (message: MessageEvent<RunnerRequest>) => {
       const events = trace.getEvents()
       const doneEvent = events.at(-1)
       const serializableResult = doneEvent?.type === 'done' ? doneEvent.result : result
-      const response: RunnerSuccess = { ok: true, events, result: serializableResult, duration }
+      const response: RunnerSuccess = { ok: true, events, result: serializableResult, duration, observation: trace.getObservation() }
       scope.postMessage(response)
     } catch (error) {
       fail(error)

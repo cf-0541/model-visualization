@@ -257,23 +257,62 @@ export function keyFrameIndices(events: RuntimeEvent[]): number[] {
   return [...indices].sort((a, b) => a - b)
 }
 
-// A seekable cursor holds only mutable replay state and its current snapshot.
-// Backward seeks restart the replay; forward playback never clones skipped frames.
-export function createTraceCursor(events: RuntimeEvent[], kinds?: ReadonlyMap<number, FrameKind>) {
+export interface TraceCursorOptions {
+  checkpointInterval?: number
+  maxCheckpoints?: number
+  // Budget in serialized UTF-8 bytes, not a bound on JavaScript heap overhead.
+  maxCheckpointBytes?: number
+}
+
+// Keep sparse replay checkpoints, not a VisualStep for every event. Restoring
+// clones the saved state so a subsequent write cannot mutate a cached checkpoint.
+export function createTraceCursor(
+  events: RuntimeEvent[],
+  kinds?: ReadonlyMap<number, FrameKind>,
+  options: TraceCursorOptions = {},
+) {
+  const bounded = (value: number | undefined, fallback: number, min: number, max: number) =>
+    value === undefined || !Number.isFinite(value) ? fallback : Math.min(max, Math.max(min, Math.floor(value)))
+  const interval = bounded(options.checkpointInterval, 256, 1, 4096)
+  const maxCheckpoints = bounded(options.maxCheckpoints, 12, 0, 32)
+  const maxBytes = bounded(options.maxCheckpointBytes, 1024 * 1024, 0, 4 * 1024 * 1024)
+  const checkpoints = new Map<number, { saved: ReplayCheckpoint; bytes: number }>()
   const eventKinds = kinds ?? new Map(frameCandidates(events).map(({ index, kind }) => [index, kind]))
   let state = createState()
   let next = 0
   let currentIndex = -1
   let current: VisualStep | null = null
+  let checkpointBytes = 0
+  let appliedEvents = 0
+
+  function remember() {
+    if (!maxCheckpoints || !maxBytes || next % interval || checkpoints.has(next)) return
+    const saved = state.checkpoint()
+    const bytes = new TextEncoder().encode(JSON.stringify(saved)).byteLength
+    if (bytes > maxBytes) return
+    while (checkpoints.size >= maxCheckpoints || checkpointBytes + bytes > maxBytes) {
+      const oldest = checkpoints.keys().next().value!
+      checkpointBytes -= checkpoints.get(oldest)!.bytes
+      checkpoints.delete(oldest)
+    }
+    checkpoints.set(next, { saved, bytes })
+    checkpointBytes += bytes
+  }
 
   function at(index: number): VisualStep | null {
-    if (index < 0 || index >= events.length) return null
+    if (!Number.isInteger(index) || index < 0 || index >= events.length) return null
     if (index === currentIndex) return current
     if (index < currentIndex) {
-      state = createState()
-      next = 0
+      let nearest = 0
+      for (const position of checkpoints.keys()) if (position <= index + 1 && position > nearest) nearest = position
+      state = createState(checkpoints.get(nearest)?.saved)
+      next = nearest
     }
-    while (next <= index) state.apply(events[next++])
+    while (next <= index) {
+      state.apply(events[next++])
+      appliedEvents += 1
+      remember()
+    }
     current = state.frame(events[index], index, eventKinds.get(index) ?? 'minor')
     currentIndex = index
     return current
@@ -281,18 +320,56 @@ export function createTraceCursor(events: RuntimeEvent[], kinds?: ReadonlyMap<nu
   function kindAt(index: number): FrameKind {
     return eventKinds.get(index) ?? 'minor'
   }
-  return { at, kindAt }
+  const stats = () => ({ appliedEvents, checkpointCount: checkpoints.size, checkpointBytes })
+  return { at, kindAt, stats }
 }
 
-function createState() {
-  const tracked: Record<string, unknown> = {}
-  const callStack: CallFrame[] = []
-  let pendingReads: TracePointer[] = []
-  let activeReads: TracePointer[] = []
-  let activeWrite: (TracePointer & { before: unknown }) | null = null
-  let activeArrayWrite: WriteEvent | null = null
-  let branch: { expression: string; result: boolean } | null = null
-  let result: unknown = undefined
+export interface TraceTargetSummary {
+  target: string
+  nested: boolean
+  writeScore: number
+}
+
+// Match the bounded compiler's target-selection evidence without materializing
+// any VisualStep or retaining full tracked snapshots for sampled frames.
+export function summarizeTraceTargets(events: RuntimeEvent[]): TraceTargetSummary[] {
+  const selected = selectFrames(events)
+  const state = createState()
+  const scores = new Map<string, number>()
+  events.forEach((event, index) => {
+    state.apply(event)
+    if (event.type !== 'write' || !selected.has(index)) return
+    const write = state.writeDependency()
+    if (write) scores.set(write.target, (scores.get(write.target) ?? 0) + (write.dependent ? 5 : 1))
+  })
+  return state.targetSummary(scores)
+}
+
+interface ReplayCheckpoint {
+  tracked: Record<string, unknown>
+  callStack: CallFrame[]
+  pendingReads: TracePointer[]
+  activeReads: TracePointer[]
+  activeWrite: (TracePointer & { before: unknown }) | null
+  activeArrayWrite: WriteEvent | null
+  branch: { expression: string; result: boolean } | null
+  result: unknown
+}
+
+function createState(saved?: ReplayCheckpoint) {
+  const restored = saved ? cloneValue(saved) : undefined
+  const tracked: Record<string, unknown> = restored?.tracked ?? {}
+  const callStack: CallFrame[] = restored?.callStack ?? []
+  let pendingReads: TracePointer[] = restored?.pendingReads ?? []
+  let activeReads: TracePointer[] = restored?.activeReads ?? []
+  let activeWrite = restored?.activeWrite ?? null
+  let activeArrayWrite = restored?.activeArrayWrite ?? null
+  let branch = restored?.branch ?? null
+  let result: unknown = restored?.result
+
+  function checkpoint(): ReplayCheckpoint {
+    return cloneValue({ tracked, callStack, pendingReads, activeReads, activeWrite, activeArrayWrite, branch, result })
+  }
 
   function arrayWriteView(): (TracePointer & { before: unknown }) | null {
     if (!activeArrayWrite?.arrayPatch) return null
@@ -408,7 +485,25 @@ function createState() {
       snapshot,
     }
   }
-  return { apply, frame }
+  function writeDependency(): { target: string; dependent: boolean } | null {
+    // A patch is active only when apply() found a replay array. Inspect its
+    // pointer, not arrayWriteView(), which would materialize before/after views.
+    const write = activeArrayWrite ?? activeWrite
+    if (!write) return null
+    return {
+      target: write.target,
+      dependent: activeReads.some((read) => read.target === write.target &&
+        read.path.length > 0 && read.path[0] !== write.path[0]),
+    }
+  }
+
+  function targetSummary(scores: ReadonlyMap<string, number>): TraceTargetSummary[] {
+    return Object.entries(tracked).flatMap(([target, value]) => Array.isArray(value)
+      ? [{ target, nested: value.some(Array.isArray), writeScore: scores.get(target) ?? 0 }]
+      : [])
+  }
+
+  return { apply, frame, writeDependency, targetSummary, checkpoint }
 }
 
 export function compileTrace(events: RuntimeEvent[]): VisualStep[] {

@@ -184,6 +184,7 @@ input:focus-visible {
 .command-bar {
   min-height: 70px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 18px;
   padding: 10px 22px;
@@ -1529,7 +1530,7 @@ input:focus-visible {
     min-height: 0;
   }
 
-  .code-panel.tracing .input-section {
+  .code-panel.tracing .input-section:not(.has-error) {
     display: none;
   }
 
@@ -1663,3 +1664,15 @@ input:focus-visible {
 .graph-node.active circle { fill: rgba(66, 232, 224, 0.27); stroke: var(--cyan); stroke-width: 4; }
 .graph-details { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; color: var(--text-soft); font-size: 12px; }
 @media (max-width: 860px) { .share-button { flex: 1 0 140px; } }
+
+.share-button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+@media (max-width: 700px) {
+  .code-panel.tracing .input-section.has-error .input-hint { display: none; }
+}
+
+/* Completion and observation limits are separate from model-detection notices. */
+.run-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; padding: 10px 18px; font-size: 12px; line-height: 1.6; color: var(--text-soft); }
+.run-summary strong { color: #77d7ba; }
+.run-summary.incomplete strong { color: #f2bd70; }
+.stop-button { color: #f2bd70; }

@@ -44,6 +44,20 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Run tests
         run: pnpm test
+      - name: Report trace seeking benchmark
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm bench:trace | tee trace-benchmark.txt
+          {
+            echo '## Trace replay microbenchmark'
+            echo 'Same events and seek sequence, with/without bounded checkpoints. Timings are informational, not a flaky CI threshold. Serialized bytes are not heap usage.'
+            echo '```text'
+            cat trace-benchmark.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Test deployment tooling
+        run: python3 -m unittest discover -s deploy -p 'test_*.py' -v
       - name: Verify experimental AST parity
         run: pnpm pilot:ast
       - name: Build production bundle
