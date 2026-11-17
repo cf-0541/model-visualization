@@ -51,7 +51,7 @@ jobs:
           pnpm bench:trace | tee trace-benchmark.txt
           {
             echo '## Trace replay microbenchmark'
-            echo 'Same events and seek sequence, with/without bounded checkpoints. Timings are informational, not a flaky CI threshold. Serialized bytes are not heap usage.'
+            echo 'Same events and seek sequence, with/without bounded checkpoints. Timings are informational, not a flaky CI threshold. Checkpoint bytes are conservative UTF-8 JSON upper-bound charges, not exact serialized size or heap usage.'
             echo '```text'
             cat trace-benchmark.txt
             echo '```'

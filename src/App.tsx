@@ -173,7 +173,7 @@ export default function App() {
     const kind = playbackMode === 'key' ? 'key' : cursor?.kindAt(nextEventIndex) ?? 'minor'
     const timer = window.setTimeout(() => {
       setStepIndex((current) => Math.min(total - 1, current + 1))
-    }, playbackDelay(kind, total, speed))
+    }, playbackDelay(kind, total, speed, playbackMode))
     return () => window.clearTimeout(timer)
   }, [playing, speed, stepIndex, total, playbackMode, keyIndices, cursor])
 

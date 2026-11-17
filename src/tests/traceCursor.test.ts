@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { createTraceRuntime } from '../runtime/traceRuntime'
 import { createTraceCursor } from '../trace/compileTrace'
@@ -34,6 +34,22 @@ function compareSeeks(events: RuntimeEvent[], interval = 16) {
 }
 
 describe('bounded replay checkpoints', () => {
+  it.each([1, 2, 7, 16, 256])('preserves absolute event positions after restore and eviction (interval=%i)', interval => {
+    const events: RuntimeEvent[] = [{ seq: 0, type: 'track', line: 1, target: 'a', value: [0] }]
+    for (let index = 1; index <= 520; index++) {
+      events.push({ seq: index, type: 'write', line: 2, target: 'a', path: [0], before: index - 1, after: index })
+    }
+    const cached = createTraceCursor(events, undefined, { checkpointInterval: interval, maxCheckpoints: 2 })
+    const reference = createTraceCursor(events, undefined, { maxCheckpoints: 0 })
+    const seeks = [520, 255, 256, 257, 511, 512, 513, 15, 16, 17, 0, 520,
+      ...Array.from({ length: 100 }, (_, i) => (i * 137 + 31) % events.length)]
+    for (const index of seeks) {
+      const frame = cached.at(index)!
+      expect(frame, `seek ${index}`).toEqual(reference.at(index))
+      expect(frame.snapshot.tracked.a).toEqual([index])
+    }
+  })
+
   it('preserves reads, branches, calls, replacements and lazy array deltas on mixed seeks', () => {
     const events = mixedTrace()
     const cursor = compareSeeks(events)
@@ -66,7 +82,18 @@ describe('bounded replay checkpoints', () => {
       .toEqual(['level0', 'level1', 'level2', 'level3'])
   })
 
-  it('bounds both checkpoint count and retained serialized bytes', () => {
+  it('does not serialize the replay state to build checkpoints', () => {
+    const events = mixedTrace()
+    const serialize = vi.spyOn(JSON, 'stringify')
+    try {
+      const cursor = createTraceCursor(events, undefined, { checkpointInterval: 8 })
+      cursor.at(events.length - 1)
+      expect(cursor.stats().checkpointCount).toBeGreaterThan(0)
+      expect(serialize).not.toHaveBeenCalled()
+    } finally { serialize.mockRestore() }
+  })
+
+  it('bounds both checkpoint count and conservative byte charges', () => {
     const events = mixedTrace()
     const cursor = createTraceCursor(events, undefined, { checkpointInterval: 8, maxCheckpoints: 3, maxCheckpointBytes: 5000 })
     for (let i = 0; i < events.length; i++) {

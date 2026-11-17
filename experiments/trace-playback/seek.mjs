@@ -1,4 +1,4 @@
-// Deterministic replay benchmark. Serialized checkpoint bytes are NOT a heap measurement.
+// Deterministic replay benchmark. Conservative checkpoint byte charges are NOT a heap measurement.
 import assert from 'node:assert/strict'
 import { resolve } from 'node:path'
 import { createServer } from 'vite'
@@ -58,6 +58,6 @@ try {
       initialEndMedianMs: median(() => cached().at(end)),
       seekSequenceMedianMs: median(() => measure(cached)), ...measure(cached),
     },
-    note: 'Local Vite SSR microbenchmark, not browser frame latency. checkpointBytes is retained UTF-8 JSON size, not JS heap usage.',
+    note: 'Local Vite SSR microbenchmark, not browser frame latency. checkpointBytes is a conservative UTF-8 JSON upper bound, not exact serialized size or JS heap usage.',
   }, null, 2))
 } finally { await server.close() }

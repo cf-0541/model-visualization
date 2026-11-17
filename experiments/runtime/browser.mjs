@@ -30,6 +30,13 @@ try {
         try {
           await page.addInitScript(() => {
             window.__runs = []
+            // Observe the real app's requested pacing without replacing its clock.
+            window.__scheduledDelays = []
+            const nativeTimeout = window.setTimeout.bind(window)
+            window.setTimeout = (callback, delay, ...args) => {
+              window.__scheduledDelays.push(delay)
+              return nativeTimeout(callback, delay, ...args)
+            }
             const NativeWorker = window.Worker
             window.Worker = class extends NativeWorker {
               constructor(...args) {
@@ -103,6 +110,24 @@ try {
           assert.match(await page.locator('.footer-metrics').innerText(), /未完成/)
           await complete(10)
 
+          // Verify production App wiring, not just the delay helper in isolation.
+          await page.evaluate(() => { window.__scheduledDelays = [] })
+          await start('function solve() { const a = [0]; for (let i = 0; i < 600; i++) a[0] = i; return a; }')
+          await page.locator('.run-summary[data-completion="complete"]').waitFor()
+          const timeline = page.getByRole('slider', { name: '执行时间轴', exact: true })
+          const frameCount = Number(await timeline.getAttribute('max')) + 1
+          assert.ok(frameCount > 1000, `Dense writes should keep every key frame: ${frameCount}`)
+          const normal = 680 * Math.max(0.35, Math.sqrt(64 / Math.max(64, frameCount)))
+          const keyDelay = Math.max(16, Math.min(normal, 60000 / frameCount))
+          await page.waitForFunction(delay => window.__scheduledDelays.some(value => Math.abs(value - delay) < 1e-6), keyDelay)
+          await page.getByRole('button', { name: '暂停', exact: true }).click()
+          for (const key of ['End', 'Home', 'End']) {
+            await timeline.press(key)
+            assert.equal(await timeline.inputValue(), key === 'Home' ? '0' : String(frameCount - 1))
+            // The first frame can precede tracking a; it need not display [0].
+            if (key === 'End') await page.waitForFunction(() => Array.from(document.querySelectorAll('.array-value'), node => node.textContent).join(',') === '599')
+          }
+
           // Built-in reports are lazy data imports, never native/JS execution.
           const starts = await page.evaluate(() => window.__runs.length)
           const requests = []
@@ -123,7 +148,7 @@ try {
           await complete(11)
           assert.deepEqual(errors, [])
           assert.ok(await page.evaluate(() => window.__runs.every(run => run.terminated === 1)), 'Every Worker must be terminated exactly once')
-          console.log(`PASS ${engine}/${width}: stop, edit cancellation, replacement, timeout/recovery, snapshot/trace limits, lazy C++ sample, JS recovery`)
+          console.log(`PASS ${engine}/${width}: stop, edit cancellation, replacement, timeout/recovery, snapshot/trace limits, dense key pacing/backseek, lazy C++ sample, JS recovery`)
         } finally { await page.close() }
       }
     } finally { await browser.close() }

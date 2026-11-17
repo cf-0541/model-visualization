@@ -15,6 +15,7 @@
     "pilot:cpp": "python -m unittest discover -s experiments/cpp -p test_*.py -v",
     "pilot:cpp:browser": "node experiments/cpp/browser.mjs",
     "bench:trace": "node experiments/trace-playback/seek.mjs",
+    "bench:trace:checkpoint": "node experiments/trace-playback/checkpoint.mjs",
     "bench:trace:prepare": "node experiments/trace-playback/measure.mjs",
     "test:runtime:browser": "node experiments/runtime/browser.mjs"
   },

@@ -1,4 +1,5 @@
 import { MAX_COLLECTION_SIZE } from '../runtime/traceRuntime'
+import { copyCheckpoint } from './checkpoint'
 import type {
   ArrayPatch,
   CallFrame,
@@ -260,7 +261,7 @@ export function keyFrameIndices(events: RuntimeEvent[]): number[] {
 export interface TraceCursorOptions {
   checkpointInterval?: number
   maxCheckpoints?: number
-  // Budget in serialized UTF-8 bytes, not a bound on JavaScript heap overhead.
+  // Conservative JSON UTF-8 byte budget, not a bound on JavaScript heap overhead.
   maxCheckpointBytes?: number
 }
 
@@ -276,26 +277,27 @@ export function createTraceCursor(
   const interval = bounded(options.checkpointInterval, 256, 1, 4096)
   const maxCheckpoints = bounded(options.maxCheckpoints, 12, 0, 32)
   const maxBytes = bounded(options.maxCheckpointBytes, 1024 * 1024, 0, 4 * 1024 * 1024)
+  // Keys are absolute next-event positions: key k saves state after events[0..k-1].
   const checkpoints = new Map<number, { saved: ReplayCheckpoint; bytes: number }>()
   const eventKinds = kinds ?? new Map(frameCandidates(events).map(({ index, kind }) => [index, kind]))
   let state = createState()
-  let next = 0
+  let nextEventIndex = 0
   let currentIndex = -1
   let current: VisualStep | null = null
   let checkpointBytes = 0
   let appliedEvents = 0
 
   function remember() {
-    if (!maxCheckpoints || !maxBytes || next % interval || checkpoints.has(next)) return
-    const saved = state.checkpoint()
-    const bytes = new TextEncoder().encode(JSON.stringify(saved)).byteLength
-    if (bytes > maxBytes) return
+    if (!maxCheckpoints || !maxBytes || nextEventIndex % interval || checkpoints.has(nextEventIndex)) return
+    const checkpoint = state.checkpoint(maxBytes)
+    if (!checkpoint) return
+    const { bytes } = checkpoint
     while (checkpoints.size >= maxCheckpoints || checkpointBytes + bytes > maxBytes) {
       const oldest = checkpoints.keys().next().value!
       checkpointBytes -= checkpoints.get(oldest)!.bytes
       checkpoints.delete(oldest)
     }
-    checkpoints.set(next, { saved, bytes })
+    checkpoints.set(nextEventIndex, checkpoint)
     checkpointBytes += bytes
   }
 
@@ -306,10 +308,11 @@ export function createTraceCursor(
       let nearest = 0
       for (const position of checkpoints.keys()) if (position <= index + 1 && position > nearest) nearest = position
       state = createState(checkpoints.get(nearest)?.saved)
-      next = nearest
+      // Resume at the same absolute position represented by the saved state.
+      nextEventIndex = nearest
     }
-    while (next <= index) {
-      state.apply(events[next++])
+    while (nextEventIndex <= index) {
+      state.apply(events[nextEventIndex++])
       appliedEvents += 1
       remember()
     }
@@ -367,8 +370,8 @@ function createState(saved?: ReplayCheckpoint) {
   let branch = restored?.branch ?? null
   let result: unknown = restored?.result
 
-  function checkpoint(): ReplayCheckpoint {
-    return cloneValue({ tracked, callStack, pendingReads, activeReads, activeWrite, activeArrayWrite, branch, result })
+  function checkpoint(maxBytes: number) {
+    return copyCheckpoint<ReplayCheckpoint>({ tracked, callStack, pendingReads, activeReads, activeWrite, activeArrayWrite, branch, result }, maxBytes)
   }
 
   function arrayWriteView(): (TracePointer & { before: unknown }) | null {
