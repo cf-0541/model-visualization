@@ -76,7 +76,8 @@ export function importCppTrace(json: string): ImportedCppTrace {
   const values = new Map<string, Sample>()
   const stack: Array<{ name: string; callId: number; depth: number; args: Record<string, unknown> }> = []
   let lastCallId = 0
-  // A cumulative budget also bounds processing of repeated large but valid snapshots.
+  // Charge values supplied by the report once, including patch before/after values.
+  // Reconstructed states are validated separately against the per-snapshot limits.
   let valueNodes = 0
   const readSample = (value: unknown): Sample => {
     const budget = { remaining: 1024 }
@@ -150,7 +151,8 @@ export function importCppTrace(json: string): ImportedCppTrace {
             for (const change of changes) if (change.afterPresent) current[change.index] = structuredClone(change.after!)
             current.length = afterLength
             // Revalidate total nesting/size after a patch, not just each changed leaf.
-            readSample(values.get(target))
+            // These values were already charged on input; do not charge them again.
+            sample(values.get(target))
             events.push({ ...base, type: 'write', target, path, arrayPatch: { beforeLength, afterLength, changes } })
           } else {
             const before = readSample(event.before)

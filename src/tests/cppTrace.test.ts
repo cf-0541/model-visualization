@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { importCppTrace, MAX_CPP_REPORT_BYTES } from '../trace/importCppTrace'
 import { compileTrace, createTraceCursor, keyFrameIndices } from '../trace/compileTrace'
 import { decideModel } from '../trace/detectModel'
+import type { ArrayPatch } from '../types'
 
 const read = (name = 'bubble') => JSON.parse(readFileSync(new URL(`../examples/cpp/${name}.json`, import.meta.url), 'utf8'))
 const load = (name = 'bubble') => importCppTrace(JSON.stringify(read(name)))
@@ -116,5 +117,111 @@ describe('C++ import trust boundary', () => {
     expect(() => importCppTrace('x'.repeat(MAX_CPP_REPORT_BYTES + 1))).toThrow('8 MiB')
     expect(() => importCppTrace('[]')).toThrow('C++ 轨迹无效')
     expect(() => importCppTrace('{')).toThrow('不是 JSON')
+  })
+})
+
+describe('C++ patch import budgets', () => {
+  const reportFor = (
+    value: unknown,
+    patches: Array<{ path: number[]; arrayPatch: ArrayPatch }>,
+    result: unknown = { exitCode: 0 },
+  ) => ({
+    schemaVersion: 1, language: 'cpp', capture: 'debugger-line-sampling',
+    status: 'complete', reason: null,
+    source: { name: 'patch.cpp', text: 'int main() { return 0; }' },
+    steps: patches.length, limits: { maxSteps: 5000, maxEvents: 10000 },
+    events: [
+      { seq: 0, line: 0, type: 'track', target: 'numbers', value },
+      ...patches.map((patch, index) => ({ seq: index + 1, line: 1, type: 'write', target: 'numbers', ...patch })),
+      { seq: patches.length + 1, line: 1, type: 'done', result, duration: 0 },
+    ],
+  })
+
+  it.each([1625, 1626, 5000])('imports and seeks through %i single-element patches without recharging unchanged values', count => {
+    const initial = Array(120).fill(0)
+    const report = reportFor(initial, Array.from({ length: count }, (_, index) => ({
+      path: [],
+      arrayPatch: {
+        beforeLength: 120, afterLength: 120,
+        changes: [{ index: 0, beforePresent: true, afterPresent: true, before: index % 2, after: 1 - index % 2 }],
+      },
+    })))
+    const json = JSON.stringify(report)
+    expect(new TextEncoder().encode(json).length).toBeLessThan(MAX_CPP_REPORT_BYTES)
+    const imported = importCppTrace(json)
+    expect(imported.status).toBe('complete')
+    expect(imported.result.events).toHaveLength(count + 2)
+    const eventsBeforeReplay = JSON.stringify(imported.result.events)
+    const cursor = createTraceCursor(imported.result.events)
+    const expected = [count % 2, ...initial.slice(1)]
+    expect(cursor.at(count + 1)!.snapshot.tracked.numbers).toEqual(expected)
+    expect(cursor.at(0)!.snapshot.tracked.numbers).toEqual(initial)
+    expect(cursor.at(count + 1)!.snapshot.tracked.numbers).toEqual(expected)
+    expect(JSON.stringify(imported.result.events)).toBe(eventsBeforeReplay)
+  })
+
+  it.each([200000, 200001])('enforces the cumulative input-value budget at %i nodes', nodes => {
+    // Each matrix has 1 + 9 * (1 + 110) = 1000 nodes. The tracked
+    // wrapper contributes 1001; 99 before/after pairs contribute 198000.
+    const matrix = Array.from({ length: 9 }, () => Array(110).fill(0))
+    const result = structuredClone(matrix)
+    if (nodes === 200000) result[0].pop() // Terminal value: 999 rather than 1000 nodes.
+    const report = reportFor([matrix], Array.from({ length: 99 }, () => ({
+      path: [],
+      arrayPatch: {
+        beforeLength: 1, afterLength: 1,
+        changes: [{ index: 0, beforePresent: true, afterPresent: true, before: matrix, after: matrix }],
+      },
+    })), result)
+    const json = JSON.stringify(report)
+    expect(new TextEncoder().encode(json).length).toBeLessThan(MAX_CPP_REPORT_BYTES)
+    if (nodes === 200000) expect(importCppTrace(json).result.result).toEqual(result)
+    else expect(() => importCppTrace(json)).toThrow(/seq=100.*累计快照超过导入预算/)
+  })
+
+  it.each([1024, 1025])('revalidates the reconstructed snapshot at %i nodes', nodes => {
+    // Initially 1 + 8 * 121 + 54 = 1023 nodes; each added scalar costs one.
+    const initial = [...Array.from({ length: 8 }, () => Array(120).fill(0)), Array(53).fill(0)]
+    const report = reportFor(initial, [{
+      path: [8],
+      arrayPatch: {
+        beforeLength: 53, afterLength: 53 + nodes - 1023,
+        changes: Array.from({ length: nodes - 1023 }, (_, index) => ({
+          index: 53 + index, beforePresent: false, afterPresent: true, before: null, after: 0,
+        })),
+      },
+    }])
+    const json = JSON.stringify(report)
+    if (nodes === 1024) {
+      const cursor = createTraceCursor(importCppTrace(json).result.events)
+      expect(cursor.at(2)!.snapshot.tracked.numbers).toEqual([...initial.slice(0, 8), Array(54).fill(0)])
+    } else expect(() => importCppTrace(json)).toThrow(/seq=1.*值超出快照预算/)
+  })
+
+  it.each([3, 4])('revalidates reconstructed nesting at depth %i', depth => {
+    const initial = depth === 3 ? [[0]] : [[[0]]]
+    const report = reportFor(initial, [{
+      path: depth === 3 ? [0] : [0, 0],
+      arrayPatch: {
+        beforeLength: 1, afterLength: 1,
+        changes: [{ index: 0, beforePresent: true, afterPresent: true, before: 0, after: [1] }],
+      },
+    }])
+    const json = JSON.stringify(report)
+    if (depth === 3) {
+      const cursor = createTraceCursor(importCppTrace(json).result.events)
+      expect(cursor.at(2)!.snapshot.tracked.numbers).toEqual([[[1]]])
+    } else expect(() => importCppTrace(json)).toThrow(/seq=1.*值超出快照预算/)
+  })
+
+  it('still rejects oversized array values supplied by a patch', () => {
+    const report = reportFor([0], [{
+      path: [],
+      arrayPatch: {
+        beforeLength: 1, afterLength: 1,
+        changes: [{ index: 0, beforePresent: true, afterPresent: true, before: 0, after: Array(121).fill(0) }],
+      },
+    }])
+    expect(() => importCppTrace(JSON.stringify(report))).toThrow(/seq=1.*数组超过 120 项/)
   })
 })
